@@ -1,0 +1,391 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Job Profitability Analysis — Exploratory Data Analysis\n",
+    "\n",
+    "This notebook explores the job task dataset following the structured hierarchy:\n",
+    "1. Overall Metrics\n",
+    "2. Category-Level Analysis\n",
+    "3. Job-Level Analysis\n",
+    "4. Task-Level Analysis\n",
+    "5. Synthesis: Why Jobs Run Over"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import pandas as pd\n",
+    "import numpy as np\n",
+    "import matplotlib.pyplot as plt\n",
+    "import sys\n",
+    "sys.path.append('..')\n",
+    "\n",
+    "from analysis import (\n",
+    "    load_data, get_available_fiscal_years,\n",
+    "    compute_category_summary, compute_job_summary, compute_task_summary,\n",
+    "    calculate_overall_metrics, analyze_overrun_causes,\n",
+    "    get_top_overruns, get_loss_making_jobs, get_unquoted_tasks\n",
+    ")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Configuration\n",
+    "DATA_PATH = '../data/Quoted_Task_Report_FY26.xlsx'\n",
+    "\n",
+    "# Load raw data\n",
+    "df = load_data(DATA_PATH)\n",
+    "print(f\"Loaded {len(df):,} task records\")\n",
+    "print(f\"Columns: {len(df.columns)}\")\n",
+    "print(f\"\\nFiscal Years available: {get_available_fiscal_years(df)}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Compute all summaries\n",
+    "category_summary = compute_category_summary(df)\n",
+    "job_summary = compute_job_summary(df)\n",
+    "task_summary = compute_task_summary(df)\n",
+    "\n",
+    "print(f\"Categories: {len(category_summary)}\")\n",
+    "print(f\"Unique Jobs: {len(job_summary):,}\")\n",
+    "print(f\"Task records: {len(task_summary):,}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "---\n",
+    "## 1. Overall Metrics"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "metrics = calculate_overall_metrics(job_summary)\n",
+    "\n",
+    "print(\"=\"*50)\n",
+    "print(\"OVERALL PERFORMANCE METRICS\")\n",
+    "print(\"=\"*50)\n",
+    "print(f\"Total Jobs:              {metrics['total_jobs']:,}\")\n",
+    "print(f\"Total Quoted Revenue:    ${metrics['total_quoted_revenue']:,.0f}\")\n",
+    "print(f\"Total Billable Revenue:  ${metrics['total_billable_revenue']:,.0f}\")\n",
+    "print(f\"Total Cost:              ${metrics['total_cost']:,.0f}\")\n",
+    "print(f\"Total Profit:            ${metrics['total_profit']:,.0f}\")\n",
+    "print(f\"Overall Margin %:        {metrics['overall_margin_pct']:.1f}%\")\n",
+    "print()\n",
+    "print(f\"Jobs Over Budget:        {metrics['jobs_over_budget']} ({metrics['overrun_rate']:.1f}%)\")\n",
+    "print(f\"Jobs at Loss:            {metrics['jobs_at_loss']} ({metrics['loss_rate']:.1f}%)\")\n",
+    "print(f\"Hours Variance:          {metrics['hours_variance']:+,.0f} hrs ({metrics['hours_variance_pct']:+.1f}%)\")\n",
+    "print(f\"Profit Lost to Losses:   ${metrics['profit_lost_to_overruns']:,.0f}\")\n",
+    "print()\n",
+    "print(f\"Avg Margin %:            {metrics['avg_margin_pct']:.1f}%\")\n",
+    "print(f\"Avg Quoted Margin %:     {metrics['avg_quoted_margin_pct']:.1f}%\")\n",
+    "print(f\"Margin Gap:              {metrics['margin_gap']:.1f}%\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "---\n",
+    "## 2. Category-Level Analysis\n",
+    "*\"Which areas of the business are most prone to profit leaks?\"*"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Category summary sorted by margin\n",
+    "category_summary.sort_values('Margin_Pct')[[\n",
+    "    'Category', 'Job_Count', 'Quoted_Hours', 'Actual_Hours', 'Hours_Variance_Pct',\n",
+    "    'Quoted_Amount', 'Billable_Amount', 'Profit', 'Margin_Pct'\n",
+    "]]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Margin by category chart\n",
+    "fig, axes = plt.subplots(1, 2, figsize=(14, 6))\n",
+    "\n",
+    "# Chart 1: Margin %\n",
+    "cat_sorted = category_summary[category_summary['Billable_Amount'] > 0].sort_values('Margin_Pct')\n",
+    "colors = ['#e53935' if m < 20 else '#43a047' for m in cat_sorted['Margin_Pct']]\n",
+    "axes[0].barh(cat_sorted['Category'], cat_sorted['Margin_Pct'], color=colors)\n",
+    "axes[0].axvline(x=0, color='black', linewidth=0.5)\n",
+    "axes[0].axvline(x=20, color='orange', linestyle='--', label='20% threshold')\n",
+    "axes[0].set_xlabel('Margin %')\n",
+    "axes[0].set_title('Profit Margin by Category')\n",
+    "\n",
+    "# Chart 2: Hours Variance %\n",
+    "colors2 = ['#e53935' if v > 20 else '#1e88e5' for v in cat_sorted['Hours_Variance_Pct']]\n",
+    "axes[1].barh(cat_sorted['Category'], cat_sorted['Hours_Variance_Pct'], color=colors2)\n",
+    "axes[1].axvline(x=0, color='black', linewidth=0.5)\n",
+    "axes[1].set_xlabel('Hours Variance %')\n",
+    "axes[1].set_title('Hours Variance by Category')\n",
+    "\n",
+    "plt.tight_layout()\n",
+    "plt.show()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "---\n",
+    "## 3. Job-Level Analysis\n",
+    "*\"Quote vs Actual Summary per job — identify problematic projects\"*"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Jobs with lowest margins\n",
+    "print(\"BOTTOM 20 JOBS BY MARGIN %\")\n",
+    "job_summary.nsmallest(20, 'Margin_Pct')[[\n",
+    "    'Job_No', 'Job_Name', 'Client', 'Category',\n",
+    "    'Quoted_Hours', 'Actual_Hours', 'Hours_Variance_Pct',\n",
+    "    'Quoted_Amount', 'Billable_Amount', 'Actual_Cost',\n",
+    "    'Profit', 'Margin_Pct', 'Margin_Erosion'\n",
+    "]]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Jobs with highest margin erosion\n",
+    "print(\"TOP 15 JOBS BY MARGIN EROSION\")\n",
+    "job_summary.nlargest(15, 'Margin_Erosion')[[\n",
+    "    'Job_No', 'Job_Name', 'Quoted_Margin_Pct', 'Margin_Pct', 'Margin_Erosion', 'Profit'\n",
+    "]]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Margin scatter: Quoted vs Actual\n",
+    "quoted_jobs = job_summary[job_summary['Quoted_Amount'] > 0]\n",
+    "\n",
+    "fig, ax = plt.subplots(figsize=(10, 8))\n",
+    "colors = ['#e53935' if m < q else '#43a047' \n",
+    "          for m, q in zip(quoted_jobs['Margin_Pct'], quoted_jobs['Quoted_Margin_Pct'])]\n",
+    "ax.scatter(quoted_jobs['Quoted_Margin_Pct'], quoted_jobs['Margin_Pct'], \n",
+    "           c=colors, alpha=0.5, s=30)\n",
+    "ax.plot([-50, 100], [-50, 100], 'k--', alpha=0.3, label='Quoted = Actual')\n",
+    "ax.set_xlim(-50, 100)\n",
+    "ax.set_ylim(-50, 100)\n",
+    "ax.set_xlabel('Quoted Margin %')\n",
+    "ax.set_ylabel('Actual Margin %')\n",
+    "ax.set_title('Margin: Quoted vs Actual\\n(Points below diagonal = margin erosion)')\n",
+    "ax.legend()\n",
+    "plt.tight_layout()\n",
+    "plt.show()\n",
+    "\n",
+    "below_diagonal = (quoted_jobs['Margin_Pct'] < quoted_jobs['Quoted_Margin_Pct']).sum()\n",
+    "print(f\"Jobs with margin erosion: {below_diagonal} / {len(quoted_jobs)} ({below_diagonal/len(quoted_jobs)*100:.1f}%)\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "---\n",
+    "## 4. Task-Level Analysis\n",
+    "*\"Which specific task or phase caused the project overrun?\"*"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Unquoted tasks (scope creep)\n",
+    "unquoted = get_unquoted_tasks(task_summary)\n",
+    "print(f\"UNQUOTED TASKS (SCOPE CREEP): {len(unquoted):,}\")\n",
+    "print(f\"Total Cost: ${unquoted['Actual_Cost'].sum():,.0f}\")\n",
+    "print(f\"Total Hours: {unquoted['Actual_Hours'].sum():,.0f}\")\n",
+    "print()\n",
+    "print(\"Top 15 by cost:\")\n",
+    "unquoted.head(15)[['Job_No', 'Job_Name', 'Task_Name', 'Actual_Hours', 'Actual_Cost']]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Tasks with largest hour overruns (excluding unquoted)\n",
+    "overrun_tasks = task_summary[\n",
+    "    (task_summary['Is_Overrun']) & \n",
+    "    (~task_summary['Is_Unquoted']) &\n",
+    "    (task_summary['Quoted_Hours'] > 0)\n",
+    "].nlargest(20, 'Hours_Variance')\n",
+    "\n",
+    "print(\"TOP 20 TASKS BY HOUR OVERRUN\")\n",
+    "overrun_tasks[[\n",
+    "    'Job_No', 'Job_Name', 'Task_Name',\n",
+    "    'Quoted_Hours', 'Actual_Hours', 'Hours_Variance', 'Hours_Variance_Pct'\n",
+    "]]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Task types with highest overrun rates\n",
+    "task_type_summary = task_summary.groupby('Task_Category').agg({\n",
+    "    'Quoted_Hours': 'sum',\n",
+    "    'Actual_Hours': 'sum',\n",
+    "    'Hours_Variance': 'sum',\n",
+    "    'Actual_Cost': 'sum',\n",
+    "    'Task_Name': 'count'\n",
+    "}).reset_index()\n",
+    "task_type_summary.columns = ['Task Category', 'Quoted Hrs', 'Actual Hrs', 'Hrs Variance', 'Cost', 'Count']\n",
+    "task_type_summary['Variance %'] = (task_type_summary['Hrs Variance'] / task_type_summary['Quoted Hrs'] * 100).where(\n",
+    "    task_type_summary['Quoted Hrs'] > 0, 0\n",
+    ")\n",
+    "task_type_summary.sort_values('Hrs Variance', ascending=False)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "---\n",
+    "## 5. Synthesis: Why Do Jobs Run Over?"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "causes = analyze_overrun_causes(task_summary)\n",
+    "\n",
+    "print(\"=\"*60)\n",
+    "print(\"SYNTHESIS: COMMON REASONS FOR MARGIN EROSION\")\n",
+    "print(\"=\"*60)\n",
+    "\n",
+    "print(\"\\n📌 SCOPE CREEP / UNQUOTED WORK\")\n",
+    "print(f\"   Tasks with 0 quoted but actual work:  {causes['scope_creep']['task_count']:,}\")\n",
+    "print(f\"   Total cost of unquoted work:          ${causes['scope_creep']['total_cost']:,.0f}\")\n",
+    "print(f\"   Total unquoted hours:                 {causes['scope_creep']['total_hours']:,.0f}\")\n",
+    "\n",
+    "print(\"\\n⏱️ UNDERESTIMATION OF EFFORT\")\n",
+    "print(f\"   Tasks that exceeded quoted hours:     {causes['underestimation']['task_count']:,}\")\n",
+    "print(f\"   Total excess hours:                   {causes['underestimation']['excess_hours']:,.0f}\")\n",
+    "\n",
+    "print(\"\\n📝 BILLING ISSUES\")\n",
+    "print(f\"   Tasks with unbilled hours:            {causes['billing_issues']['tasks_with_unbilled']:,}\")\n",
+    "print(f\"   Total unbilled hours:                 {causes['billing_issues']['unbilled_hours']:,.0f}\")\n",
+    "\n",
+    "print(\"\\n🚫 NON-BILLABLE WORK\")\n",
+    "print(f\"   Non-billable tasks with cost:         {causes['non_billable_work']['task_count']:,}\")\n",
+    "print(f\"   Cost of non-billable work:            ${causes['non_billable_work']['total_cost']:,.0f}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Top overrun jobs\n",
+    "print(\"\\n🚨 TOP 10 JOB OVERRUNS (BY HOURS)\")\n",
+    "get_top_overruns(job_summary, n=10, by='Hours_Variance')[[\n",
+    "    'Job_No', 'Job_Name', 'Client', 'Hours_Variance', 'Profit', 'Margin_Pct'\n",
+    "]]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Loss-making jobs\n",
+    "losses = get_loss_making_jobs(job_summary)\n",
+    "print(f\"\\n💸 LOSS-MAKING JOBS: {len(losses)}\")\n",
+    "print(f\"Total losses: ${losses['Profit'].sum():,.0f}\")\n",
+    "losses.head(10)[['Job_No', 'Job_Name', 'Client', 'Profit', 'Margin_Pct', 'Actual_Cost']]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# FY comparison\n",
+    "fy_summary = job_summary.groupby('FY_Label').agg({\n",
+    "    'Job_No': 'count',\n",
+    "    'Quoted_Amount': 'sum',\n",
+    "    'Billable_Amount': 'sum',\n",
+    "    'Actual_Cost': 'sum',\n",
+    "    'Profit': 'sum',\n",
+    "    'Is_Overrun': 'sum',\n",
+    "    'Is_Loss': 'sum'\n",
+    "}).reset_index()\n",
+    "fy_summary['Margin %'] = (fy_summary['Profit'] / fy_summary['Billable_Amount'] * 100).where(\n",
+    "    fy_summary['Billable_Amount'] > 0, 0\n",
+    ")\n",
+    "fy_summary['Overrun Rate %'] = (fy_summary['Is_Overrun'] / fy_summary['Job_No'] * 100)\n",
+    "fy_summary.columns = ['FY', 'Jobs', 'Quoted', 'Revenue', 'Cost', 'Profit', 'Overruns', 'Losses', 'Margin %', 'Overrun Rate %']\n",
+    "print(\"\\n📅 FISCAL YEAR COMPARISON\")\n",
+    "fy_summary.sort_values('FY')"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "name": "python",
+   "version": "3.10.0"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}

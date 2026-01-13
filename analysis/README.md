@@ -1,143 +1,172 @@
 # Job Profitability Analysis Dashboard
 
-An interactive Streamlit dashboard for analyzing job profitability from quote to execution. Identify margin erosion, scope creep, and problematic projects by comparing quoted estimates against actual performance.
+A structured Streamlit dashboard for analyzing job profitability from quote to execution. Follows a hierarchical drill-down approach (Category → Job → Task) to identify margin erosion, scope creep, and problematic projects.
 
-## Features
+## Analysis Structure
 
-- **Fiscal Year Filtering**: Analyze any period using `[Job] Start Date` (Australian FY: Jul-Jun)
-- **Hierarchical Analysis**: Drill down from Category → Job → Task
-- **Multi-Dimensional Filtering**: Filter by FY, Category, Client, and job status
-- **Key Metrics**: Quoted vs Actual hours, revenue, cost, and margin calculations
-- **Scope Creep Detection**: Flag unquoted tasks that weren't in the original estimate
-- **Client Analysis**: View profitability by client to identify problematic accounts
-- **Visual Insights**: Interactive charts comparing margins and overrun rates
+The dashboard follows the structured approach outlined in the analysis plan:
+
+### Level 0: Overall KPIs
+- Total revenue, cost, profit, and margin
+- Jobs over budget / at loss counts
+- Hours variance summary
+- Profit lost to overruns
+
+### Level 1: Category Analysis
+*"Which areas of the business are most prone to profit leaks?"*
+- Margin % by category (bar chart)
+- Hours variance % by category
+- Category comparison table
+
+### Level 2: Job-Level Analysis
+*"Quote vs Actual Summary per job — identify problematic projects"*
+- Job profitability table with sorting
+- Filter by overruns, losses, margin erosion
+- Margin scatter plot (Quoted vs Actual)
+
+### Level 3: Task Drill-Down
+*"Which specific task or phase caused the project overrun?"*
+- Task hours chart (Quoted vs Actual)
+- Task details table with flags
+- Unquoted tasks (scope creep) alerts
+- Unbilled hours warnings
+
+### Level 4: Synthesis
+*"Why do jobs run over?"*
+- Scope creep / unquoted work analysis
+- Underestimation of effort metrics
+- Billing issues (unbilled hours)
+- Non-billable work costs
+- Top overrun jobs list
+- Loss-making jobs list
+
+## Key Features
+
+- **Fiscal Year Filtering**: Filter by `[Job] Start Date` using Australian FY (Jul-Jun)
+- **Hierarchical Navigation**: Category → Job → Task drill-down
+- **Margin Erosion Tracking**: Compare quoted vs actual margins
+- **Scope Creep Detection**: Flag tasks with 0 quoted hours but actual work
+- **Billing Efficiency**: Track unbilled hours
+- **Visual Insights**: Interactive Altair charts
 
 ## Repository Structure
 
 ```
 job-profitability-analysis/
 ├── data/
-│   └── Quoted_Task_Report_FY26.xlsx   # Your dataset
+│   └── [Your Excel file here]
 ├── notebooks/
-│   └── exploration.ipynb              # Optional: exploratory analysis
-├── app.py                             # Streamlit application
-├── analysis.py                        # Data processing module
-├── requirements.txt                   # Python dependencies
-└── README.md                          # This file
+│   └── exploration.ipynb
+├── app.py                 # Streamlit dashboard
+├── analysis.py            # Data processing module
+├── requirements.txt
+└── README.md
 ```
 
 ## Data Requirements
 
-The application expects an Excel file with a **"Data"** sheet containing these columns:
+### Required Columns
 
-### Job-Level Fields
-| Column | Type | Description |
-|--------|------|-------------|
-| `[Job] Job No.` | string | Unique job identifier |
-| `[Job] Name` | string | Job/project name |
-| `[Job] Category` | string | Business category |
-| `[Job] Client` | string | Client name |
-| `[Job] Client Manager` | string | Account manager |
-| `[Job] Start Date` | date | Job start date (used for FY filtering) |
-| `[Job] Status` | string | Job status |
-| `[Job] Budget` | numeric | Internal budget |
+| Column | Description |
+|--------|-------------|
+| `[Job] Job No.` | Unique job identifier |
+| `[Job] Name` | Job/project name |
+| `[Job] Category` | Business category (Level 1 grouping) |
+| `[Job] Client` | Client name |
+| `[Job] Client Manager` | Account manager |
+| `[Job] Start Date` | Job start date (for FY filtering) |
+| `[Job] Status` | Job status |
+| `[Job Task] Name` | Task name (Level 3) |
+| `[Job Task] Quoted Time` | Estimated hours |
+| `[Job Task] Quoted Amount` | Estimated revenue |
+| `[Job Task] Actual Time (totalled)` | Actual hours logged |
+| `[Job Task] Billable Amount` | Billable revenue |
+| `[Job Task] Invoiced Amount` | Amount invoiced |
+| `[Job Task] Invoiced Time` | Hours invoiced |
+| `[Job Task] Billable` | Yes/No billable flag |
+| `Task Category` | Task classification |
+| `[Task] Base Rate` | Internal hourly rate |
+| `[Task] Billable Rate` | Client billing rate |
+| `Time+Material (Base)` | Actual cost |
 
-### Task-Level Fields
-| Column | Type | Description |
-|--------|------|-------------|
-| `[Job Task] Name` | string | Task name |
-| `[Job Task] Quoted Time` | numeric | Estimated hours |
-| `[Job Task] Quoted Amount` | numeric | Estimated revenue |
-| `[Job Task] Actual Time (totalled)` | numeric | Actual hours logged |
-| `[Job Task] Billable Amount` | numeric | Billable revenue |
-| `[Job Task] Invoiced Amount` | numeric | Amount invoiced |
-| `[Job Task] Cost` | numeric | Task labor cost |
-| `[Job Task] Billable` | Yes/No | Whether task is billable |
-| `Task Category` | string | Task classification |
+### Exclusions
 
-### Rate & Cost Fields
-| Column | Type | Description |
-|--------|------|-------------|
-| `[Task] Base Rate` | numeric | Internal hourly rate |
-| `[Task] Billable Rate` | numeric | Client billing rate |
-| `Time+Material (Base)` | numeric | Actual cost (Base Rate × Hours) |
-
-**Note**: Entries where `[Job Task] Name` = "Social Garden Invoice Allocation" are automatically excluded.
+Entries where `[Job Task] Name` = **"Social Garden Invoice Allocation"** are automatically excluded as internal allocations.
 
 ## Installation
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/job-profitability-analysis.git
-   cd job-profitability-analysis
-   ```
+```bash
+# Clone repository
+git clone https://github.com/yourusername/job-profitability-analysis.git
+cd job-profitability-analysis
 
-2. **Create virtual environment** (recommended)
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # Windows: venv\Scripts\activate
-   ```
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+# Install dependencies
+pip install -r requirements.txt
 
-4. **Add your data**
-   ```bash
-   mkdir -p data
-   # Place your Excel file in data/ folder
-   ```
+# Add data
+mkdir -p data
+# Place your Excel file in data/
 
-## Running the App
+# Run app
+streamlit run app.py
+```
 
+## Key Metrics
+
+| Metric | Formula | Meaning |
+|--------|---------|---------|
+| **Margin %** | (Billable - Cost) / Billable × 100 | Profit as % of revenue |
+| **Quoted Margin %** | (Quoted - Cost) / Quoted × 100 | Expected margin from quote |
+| **Margin Erosion** | Quoted Margin % - Actual Margin % | Lost margin |
+| **Hours Variance** | Actual Hours - Quoted Hours | Overrun (+) or underrun (-) |
+| **Hours Variance %** | Variance / Quoted × 100 | Relative overrun |
+| **Unbilled Hours** | Actual Hours - Invoiced Hours | Work not billed |
+
+## Fiscal Year Logic
+
+Australian fiscal year convention:
+- **FY26** = July 1, 2025 – June 30, 2026
+- Jobs assigned to FY based on `[Job] Start Date`
+- Month ≥ 7 → next calendar year's FY
+
+## Analysis Workflow
+
+1. **Select Period** — Choose fiscal year from sidebar
+2. **Review Categories** — Identify low-margin or high-overrun categories
+3. **Drill into Category** — Select category to filter job list
+4. **Identify Problem Jobs** — Sort by margin, profit, or variance
+5. **Analyze Tasks** — Select job to see task breakdown
+6. **Review Synthesis** — Understand root causes of overruns
+
+## Common Issues Detected
+
+| Issue | Data Signal | Recommendation |
+|-------|-------------|----------------|
+| **Scope Creep** | Quoted Hours = 0, Actual > 0 | Improve initial scoping |
+| **Underestimation** | Actual Hours >> Quoted | Use historical data for quotes |
+| **Billing Gaps** | Unbilled Hours > 0 | Review invoicing process |
+| **Margin Erosion** | Actual Margin << Quoted | Review pricing/cost control |
+| **Losses** | Profit < 0 | Investigate specific jobs |
+
+## Deployment
+
+### Streamlit Cloud
+1. Push to GitHub
+2. Connect at [share.streamlit.io](https://share.streamlit.io)
+3. Set main file: `app.py`
+
+### Local
 ```bash
 streamlit run app.py
 ```
 
-Opens at `http://localhost:8501`. You can also upload data directly via the sidebar.
+## References
 
-## Key Metrics
+- Analysis plan based on WorkflowMax and WorkGuru profitability best practices
+- Margin calculations follow standard project accounting (Profit / Revenue)
+- Australian FY convention (July–June)
 
-| Metric | Formula | Interpretation |
-|--------|---------|----------------|
-| **Margin %** | (Billable - Cost) / Billable × 100 | Profit as % of revenue |
-| **Hours Variance** | Actual Hours - Quoted Hours | Positive = overrun |
-| **Cost Variance** | Actual Cost - Quoted Amount | Positive = over budget |
-| **Overrun Rate** | Overrun Jobs / Total Jobs × 100 | Category health indicator |
-
-## Fiscal Year Logic
-
-The dashboard uses Australian fiscal year convention:
-- **FY26** = July 1, 2025 – June 30, 2026
-- Jobs are assigned to FY based on `[Job] Start Date`
-
-## Analysis Workflow
-
-1. **Select Period**: Choose fiscal year to focus on
-2. **Category Overview**: Review margin and overrun rates by category
-3. **Identify Problem Jobs**: Sort by margin or profit to find worst performers
-4. **Task Drill-Down**: Select a job to see which tasks drove variances
-5. **Scope Creep**: Review unquoted tasks for hidden costs
-
-## Common Issues Identified
-
-| Issue | Indicator | Action |
-|-------|-----------|--------|
-| **Scope Creep** | Unquoted tasks with actual hours | Review change management |
-| **Hour Overruns** | Actual Hours >> Quoted Hours | Improve estimation |
-| **Margin Erosion** | Low/negative margin % | Review pricing |
-| **Unbilled Work** | Billable Amount < Cost | Check billing process |
-
-## Deployment to Streamlit Cloud
-
-1. Push repository to GitHub
-2. Go to [share.streamlit.io](https://share.streamlit.io)
-3. Connect repository, set main file to `app.py`
-4. Deploy
-
-For sensitive data, keep repo private and use Streamlit secrets management.
-
-## License
-
-MIT License
