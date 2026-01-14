@@ -1335,6 +1335,24 @@ def main():
         "Focus on consistent patterns, not single outliers",
       ]
     )
+    st.markdown("**Definitions and formulas**")
+    st.markdown(
+      """
+      - Delivery Overrun Cost = max(Actual Hours - Quoted Hours, 0) x Cost Rate/Hr
+      - Underquote Cost = max(Expected Quote - Quoted Amount, 0)
+      - Rate Erosion = max(Billable Rate/Hr - Quoted Rate/Hr, 0) x Quoted Hours
+      - Total Erosion = Delivery Overrun Cost + Underquote Cost + Rate Erosion
+      - Rate Delta = Effective Rate/Hr - Cost Rate/Hr
+      """
+    )
+    metric_explainer(
+      "Core metrics explained",
+      [
+        "Margin", "Margin_Pct", "Quote_Gap", "Quote_Gap_Pct",
+        "Hours_Variance", "Hours_Variance_Pct",
+        "Quoted_Rate_Hr", "Billable_Rate_Hr", "Effective_Rate_Hr", "Cost_Rate_Hr",
+      ],
+    )
     
     driver_df = job_summary.copy()
     driver_df["Overrun_Cost"] = np.where(
