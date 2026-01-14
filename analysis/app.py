@@ -1,15 +1,24 @@
 """
 Job Profitability Analysis Dashboard
 =====================================
-Streamlit app with full metric traceability and reconciliation.
+Hierarchy: Department → Product → Job → Task
 
 METRIC DEFINITIONS:
 -------------------
-- Quoted Amount:   [Job Task] Quoted Amount
-- Billable Value:  Actual Hours × Billable Rate (calculated)
-- Cost (T&M):      Actual Hours × Base Rate (calculated)
-- Profit:          Billable Value - Cost
-- Margin %:        (Profit / Billable Value) × 100
+MARGINS:
+- Quoted Margin %:   (Quoted Amount - Cost) / Quoted Amount × 100
+- Billable Margin %: (Billable Value - Cost) / Billable Value × 100
+
+RATES (per hour):
+- Quoted Rate/Hr:    Quoted Amount / Quoted Hours
+- Billable Rate/Hr:  [Task] Billable Rate
+- Cost Rate/Hr:      [Task] Base Rate (T&M)
+
+VALUES:
+- Quoted Amount:     [Job Task] Quoted Amount
+- Billable Value:    Actual Hours × Billable Rate/Hr
+- Cost (T&M):        Actual Hours × Cost Rate/Hr
+- Profit:            Billable Value - Cost
 """
 
 import streamlit as st
@@ -21,7 +30,9 @@ from pathlib import Path
 from analysis import (
     load_raw_data, clean_and_parse, apply_filters,
     compute_reconciliation_totals, get_available_fiscal_years,
-    compute_category_summary, compute_job_summary, compute_task_summary,
+    get_available_departments, get_available_products,
+    compute_department_summary, compute_product_summary,
+    compute_job_summary, compute_task_summary,
     get_top_overruns, get_loss_making_jobs, get_unquoted_tasks,
     calculate_overall_metrics, analyze_overrun_causes,
     METRIC_DEFINITIONS
@@ -57,6 +68,9 @@ def fmt_pct(val):
 def fmt_hours(val):
     return f"{val:,.1f}" if pd.notna(val) else "0"
 
+def fmt_rate(val):
+    return f"${val:,.0f}/hr" if pd.notna(val) and val > 0 else "N/A"
+
 
 # =============================================================================
 # MAIN APP
@@ -64,7 +78,7 @@ def fmt_hours(val):
 
 def main():
     st.title("📊 Job Profitability Analysis")
-    st.markdown("*Quote to Execution — Category → Job → Task*")
+    st.markdown("*Quote to Execution — Department → Product → Job → Task*")
     
     # =========================================================================
     # SIDEBAR: DATA SOURCE
@@ -93,9 +107,19 @@ def main():
         st.stop()
     
     # =========================================================================
-    # SIDEBAR: FILTERS (with toggles)
+    # SIDEBAR: FILTERS
     # =========================================================================
     st.sidebar.header("🎛️ Filters")
+    
+    # Department Filter
+    dept_list = get_available_departments(df_parsed)
+    dept_options = ["All Departments"] + dept_list
+    selected_dept = st.sidebar.selectbox(
+        "Department",
+        dept_options,
+        help="Filter by Department"
+    )
+    dept_filter = None if selected_dept == "All Departments" else selected_dept
     
     # Fiscal Year
     fy_list = get_available_fiscal_years(df_parsed)
@@ -129,7 +153,8 @@ def main():
         df_parsed,
         exclude_sg_allocation=exclude_sg,
         billable_only=billable_only,
-        fiscal_year=fy_num
+        fiscal_year=fy_num,
+        department=dept_filter
     )
     recon = compute_reconciliation_totals(df_filtered, recon)
     
@@ -138,7 +163,8 @@ def main():
         st.stop()
     
     # Compute summaries
-    category_summary = compute_category_summary(df_filtered)
+    dept_summary = compute_department_summary(df_filtered)
+    product_summary = compute_product_summary(df_filtered)
     job_summary = compute_job_summary(df_filtered)
     task_summary = compute_task_summary(df_filtered)
     metrics = calculate_overall_metrics(job_summary)
@@ -150,6 +176,8 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.metric("Records After Filters", f"{recon['final_records']:,}")
     st.sidebar.metric("Unique Jobs", f"{recon['totals']['unique_jobs']:,}")
+    st.sidebar.metric("Departments", f"{recon['totals']['unique_departments']:,}")
+    st.sidebar.metric("Products", f"{recon['totals']['unique_products']:,}")
     
     # =========================================================================
     # SECTION 0: RECONCILIATION & TRACEABILITY
@@ -170,17 +198,20 @@ def main():
             "Filter": [
                 "Social Garden Invoice Allocation",
                 "Non-Billable Tasks (no rates)",
-                "Other Fiscal Years"
+                "Other Fiscal Years",
+                "Other Departments"
             ],
             "Excluded Records": [
                 recon["excluded_sg_allocation"],
                 recon["excluded_non_billable"],
-                recon["excluded_other_fy"]
+                recon["excluded_other_fy"],
+                recon["excluded_other_dept"]
             ],
             "Active": [
                 "✓" if exclude_sg else "✗",
                 "✓" if billable_only else "✗",
-                "✓" if fy_num else "✗ (All Years)"
+                "✓" if fy_num else "✗ (All Years)",
+                "✓" if dept_filter else "✗ (All Depts)"
             ]
         })
         st.dataframe(excl_data, use_container_width=True, hide_index=True)
@@ -194,149 +225,255 @@ def main():
                 "Sum of Actual Hours",
                 "Sum of Invoiced Hours",
                 "Sum of Quoted Amount",
-                "Sum of Billable Value (Hrs × Billable Rate)",
-                "Sum of Cost T&M (Hrs × Base Rate)",
-                "Unique Jobs",
-                "Unique Task Names"
+                "Sum of Billable Value (calculated)",
+                "Sum of Cost T&M (calculated)",
+                "Sum of Invoiced Amount",
+                "Avg Quoted Rate/Hr",
+                "Avg Billable Rate/Hr",
+                "Avg Cost Rate/Hr",
             ],
             "Value": [
                 f"{recon['totals']['sum_quoted_hours']:,.1f}",
                 f"{recon['totals']['sum_actual_hours']:,.1f}",
                 f"{recon['totals']['sum_invoiced_hours']:,.1f}",
                 f"${recon['totals']['sum_quoted_amount']:,.0f}",
-                f"${recon['totals']['sum_calc_billable_value']:,.0f}",
-                f"${recon['totals']['sum_calc_cost_tm']:,.0f}",
-                f"{recon['totals']['unique_jobs']:,}",
-                f"{recon['totals']['unique_tasks']:,}"
+                f"${recon['totals']['sum_billable_value']:,.0f}",
+                f"${recon['totals']['sum_cost_tm']:,.0f}",
+                f"${recon['totals']['sum_invoiced_amount']:,.0f}",
+                f"${recon['totals']['avg_quoted_rate_hr']:,.0f}/hr",
+                f"${recon['totals']['avg_billable_rate_hr']:,.0f}/hr",
+                f"${recon['totals']['avg_cost_rate_hr']:,.0f}/hr",
+            ],
+            "Source/Formula": [
+                "SUM([Job Task] Quoted Time)",
+                "SUM([Job Task] Actual Time (totalled))",
+                "SUM([Job Task] Invoiced Time)",
+                "SUM([Job Task] Quoted Amount)",
+                "SUM(Actual Hrs × Billable Rate/Hr)",
+                "SUM(Actual Hrs × Cost Rate/Hr)",
+                "SUM([Job Task] Invoiced Amount)",
+                "Quoted Amount / Quoted Hours",
+                "AVG([Task] Billable Rate)",
+                "AVG([Task] Base Rate)",
             ]
         })
         st.dataframe(val_data, use_container_width=True, hide_index=True)
-        
-        st.markdown("#### Comparison: Data Field vs Calculated")
-        st.markdown("*Billable Amount field vs calculated (Hours × Rate)*")
-        comp_data = pd.DataFrame({
-            "Metric": ["Billable Amount (field)", "Billable Value (calculated)", "Difference"],
-            "Value": [
-                f"${recon['totals']['sum_billable_amount_field']:,.0f}",
-                f"${recon['totals']['sum_calc_billable_value']:,.0f}",
-                f"${recon['totals']['sum_billable_amount_field'] - recon['totals']['sum_calc_billable_value']:,.0f}"
-            ]
-        })
-        st.dataframe(comp_data, use_container_width=True, hide_index=True)
     
     # =========================================================================
-    # SECTION: METRIC DEFINITIONS
+    # SECTION 0.5: METRIC DEFINITIONS
     # =========================================================================
-    with st.expander("📖 METRIC DEFINITIONS", expanded=False):
-        st.markdown("### How Metrics Are Calculated")
-        
+    with st.expander("📐 METRIC DEFINITIONS", expanded=False):
         for key, defn in METRIC_DEFINITIONS.items():
-            st.markdown(f"**{defn['name']}**")
-            st.code(defn['formula'])
-            st.caption(defn['description'])
-            st.markdown("---")
+            st.markdown(f"**{defn['name']}**: `{defn['formula']}`")
+            st.caption(defn['desc'])
+    
+    st.markdown("---")
     
     # =========================================================================
     # SECTION 1: OVERALL KPIs
     # =========================================================================
-    st.markdown(f"### 📅 Period: **{selected_fy}** — {metrics['total_jobs']:,} Jobs | {recon['final_records']:,} Task Records")
-    
-    st.subheader("📈 Overall Performance")
+    st.header("📈 Overall Performance")
     
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Quoted Amount", fmt_currency(metrics["total_quoted_amount"]),
-              help="SUM([Job Task] Quoted Amount)")
-    c2.metric("Billable Value", fmt_currency(metrics["total_billable_value"]),
-              help="SUM(Actual Hours × Billable Rate)")
-    c3.metric("Cost (T&M)", fmt_currency(metrics["total_cost_tm"]),
-              help="SUM(Actual Hours × Base Rate)")
-    c4.metric("Profit", fmt_currency(metrics["total_profit"]),
-              help="Billable Value - Cost")
-    c5.metric("Margin %", fmt_pct(metrics["overall_margin_pct"]),
-              help="(Profit / Billable Value) × 100")
+    c1.metric("Total Jobs", f"{metrics['total_jobs']:,}")
+    c2.metric("Quoted Amount", fmt_currency(metrics['total_quoted_amount']))
+    c3.metric("Billable Value", fmt_currency(metrics['total_billable_value']))
+    c4.metric("Cost (T&M)", fmt_currency(metrics['total_cost_tm']))
+    c5.metric("Profit", fmt_currency(metrics['total_profit']))
+    
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Quoted Margin", fmt_pct(metrics["overall_quoted_margin_pct"]))
+    c2.metric("Billable Margin", fmt_pct(metrics["overall_billable_margin_pct"]))
+    c3.metric("Quoted Rate/Hr", fmt_rate(metrics["avg_quoted_rate_hr"]))
+    c4.metric("Billable Rate/Hr", fmt_rate(metrics["avg_billable_rate_hr"]))
+    c5.metric("Cost Rate/Hr", fmt_rate(metrics["avg_cost_rate_hr"]))
     
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Jobs Over Budget", f"{metrics['jobs_over_budget']} / {metrics['total_jobs']}",
+    c1.metric("Jobs Over Budget", f"{metrics['jobs_over_budget']} / {metrics['total_jobs']}", 
               delta=f"{metrics['overrun_rate']:.1f}%", delta_color="inverse")
-    c2.metric("Jobs at Loss", str(metrics['jobs_at_loss']),
+    c2.metric("Jobs at Loss", str(metrics['jobs_at_loss']), 
               delta=f"{metrics['loss_rate']:.1f}%", delta_color="inverse")
-    c3.metric("Avg Margin %", fmt_pct(metrics["avg_margin_pct"]),
-              delta=f"{-metrics['margin_gap']:.1f}% vs quoted", 
-              delta_color="inverse" if metrics['margin_gap'] > 0 else "normal")
-    c4.metric("Hours Variance", f"{metrics['hours_variance']:+,.0f} hrs",
-              delta=f"{metrics['hours_variance_pct']:+.1f}%",
-              delta_color="inverse" if metrics['hours_variance'] > 0 else "normal")
+    c3.metric("Quoted Hours", fmt_hours(metrics["total_hours_quoted"]))
+    c4.metric("Actual Hours", fmt_hours(metrics["total_hours_actual"]), 
+              delta=f"{metrics['hours_variance']:+,.0f} hrs", delta_color="inverse")
     
     st.markdown("---")
     
     # =========================================================================
-    # SECTION 2: CATEGORY ANALYSIS
+    # SECTION 2: DEPARTMENT ANALYSIS (Level 1)
     # =========================================================================
-    st.header("📂 Level 1: Category Analysis")
-    st.caption("*Which areas of the business have margin issues?*")
+    st.header("🏢 Level 1: Department Analysis")
     
-    cat_list = ["All Categories"] + sorted(category_summary["Category"].dropna().unique().tolist())
-    selected_category = st.selectbox("Select Category", cat_list, key="cat_sel")
-    
-    if selected_category == "All Categories":
-        cat_data = category_summary[category_summary["Billable_Value"] > 0].copy()
+    if selected_dept == "All Departments":
+        dept_data = dept_summary[dept_summary["Billable_Value"] > 0].copy()
         
         col1, col2 = st.columns(2)
         with col1:
-            st.subheader("Margin % by Category")
-            chart1 = alt.Chart(cat_data).mark_bar().encode(
-                x=alt.X("Margin_Pct:Q", title="Margin %"),
-                y=alt.Y("Category:N", sort="-x", title=""),
-                color=alt.condition(alt.datum.Margin_Pct < 20, alt.value("#e53935"), alt.value("#43a047")),
-                tooltip=["Category", alt.Tooltip("Margin_Pct:Q", format=".1f"),
-                         alt.Tooltip("Profit:Q", format="$,.0f"), "Job_Count"]
-            ).properties(height=max(300, len(cat_data) * 25))
-            st.altair_chart(chart1, use_container_width=True)
+            st.subheader("Billable Margin % by Department")
+            chart = alt.Chart(dept_data).mark_bar().encode(
+                x=alt.X("Billable_Margin_Pct:Q", title="Billable Margin %"),
+                y=alt.Y("Department:N", sort="-x"),
+                color=alt.condition(
+                    alt.datum.Billable_Margin_Pct < 20,
+                    alt.value("#e53935"),
+                    alt.value("#43a047")
+                ),
+                tooltip=["Department", 
+                         alt.Tooltip("Billable_Margin_Pct:Q", format=".1f", title="Billable Margin %"),
+                         alt.Tooltip("Quoted_Margin_Pct:Q", format=".1f", title="Quoted Margin %"),
+                         alt.Tooltip("Job_Count:Q", title="Jobs")]
+            ).properties(height=max(200, len(dept_data) * 35))
+            st.altair_chart(chart, use_container_width=True)
         
         with col2:
-            st.subheader("Hours Variance % by Category")
-            chart2 = alt.Chart(cat_data).mark_bar().encode(
+            st.subheader("Hours Variance % by Department")
+            chart = alt.Chart(dept_data).mark_bar().encode(
                 x=alt.X("Hours_Variance_Pct:Q", title="Hours Variance %"),
-                y=alt.Y("Category:N", sort="-x", title=""),
-                color=alt.condition(alt.datum.Hours_Variance_Pct > 20, alt.value("#e53935"), alt.value("#1e88e5")),
-                tooltip=["Category", alt.Tooltip("Hours_Variance_Pct:Q", format=".1f"),
-                         alt.Tooltip("Hours_Variance:Q", format=",.0f")]
-            ).properties(height=max(300, len(cat_data) * 25))
-            st.altair_chart(chart2, use_container_width=True)
+                y=alt.Y("Department:N", sort="-x"),
+                color=alt.condition(
+                    alt.datum.Hours_Variance_Pct > 20,
+                    alt.value("#e53935"),
+                    alt.value("#1e88e5")
+                ),
+                tooltip=["Department",
+                         alt.Tooltip("Hours_Variance_Pct:Q", format="+.1f", title="Hrs Var %"),
+                         alt.Tooltip("Quoted_Hours:Q", format=",.0f", title="Quoted Hrs"),
+                         alt.Tooltip("Actual_Hours:Q", format=",.0f", title="Actual Hrs")]
+            ).properties(height=max(200, len(dept_data) * 35))
+            st.altair_chart(chart, use_container_width=True)
         
-        with st.expander("📋 Category Table"):
-            cat_disp = cat_data[[
-                "Category", "Job_Count", "Quoted_Hours", "Actual_Hours", "Hours_Variance_Pct",
-                "Quoted_Amount", "Billable_Value", "Cost_TM", "Profit", "Margin_Pct"
-            ]].copy()
-            cat_disp.columns = ["Category", "Jobs", "Quoted Hrs", "Actual Hrs", "Hrs Var %",
-                                "Quoted $", "Billable $", "Cost $", "Profit $", "Margin %"]
-            st.dataframe(cat_disp.style.format({
-                "Quoted Hrs": "{:,.0f}", "Actual Hrs": "{:,.0f}", "Hrs Var %": "{:+.1f}%",
-                "Quoted $": "${:,.0f}", "Billable $": "${:,.0f}", "Cost $": "${:,.0f}",
-                "Profit $": "${:,.0f}", "Margin %": "{:.1f}%"
-            }), use_container_width=True)
+        # Department table
+        st.subheader("Department Summary Table")
+        dept_disp = dept_data[[
+            "Department", "Job_Count", "Product_Count",
+            "Quoted_Hours", "Actual_Hours", "Hours_Variance_Pct",
+            "Quoted_Amount", "Billable_Value", "Cost_TM",
+            "Profit", "Quoted_Margin_Pct", "Billable_Margin_Pct",
+            "Quoted_Rate_Hr", "Billable_Rate_Hr", "Cost_Rate_Hr"
+        ]].copy()
+        dept_disp.columns = [
+            "Department", "Jobs", "Products",
+            "Quoted Hrs", "Actual Hrs", "Hrs Var %",
+            "Quoted $", "Billable $", "Cost $",
+            "Profit $", "Quoted Margin %", "Billable Margin %",
+            "Quoted $/Hr", "Billable $/Hr", "Cost $/Hr"
+        ]
+        st.dataframe(dept_disp.style.format({
+            "Quoted Hrs": "{:,.0f}", "Actual Hrs": "{:,.0f}", "Hrs Var %": "{:+.1f}%",
+            "Quoted $": "${:,.0f}", "Billable $": "${:,.0f}", "Cost $": "${:,.0f}",
+            "Profit $": "${:,.0f}", "Quoted Margin %": "{:.1f}%", "Billable Margin %": "{:.1f}%",
+            "Quoted $/Hr": "${:,.0f}", "Billable $/Hr": "${:,.0f}", "Cost $/Hr": "${:,.0f}"
+        }), use_container_width=True)
     else:
-        cat_row = category_summary[category_summary["Category"] == selected_category].iloc[0]
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Jobs", int(cat_row["Job_Count"]))
-        c2.metric("Margin %", fmt_pct(cat_row["Margin_Pct"]))
-        c3.metric("Profit", fmt_currency(cat_row["Profit"]))
-        c4.metric("Hours Var", f"{cat_row['Hours_Variance']:+,.0f} hrs")
+        dept_row = dept_summary[dept_summary["Department"] == selected_dept].iloc[0]
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Products", int(dept_row["Product_Count"]))
+        c2.metric("Jobs", int(dept_row["Job_Count"]))
+        c3.metric("Billable Margin", fmt_pct(dept_row["Billable_Margin_Pct"]))
+        c4.metric("Profit", fmt_currency(dept_row["Profit"]))
+        c5.metric("Hours Var", f"{dept_row['Hours_Variance']:+,.0f} hrs")
     
     st.markdown("---")
     
     # =========================================================================
-    # SECTION 3: JOB-LEVEL ANALYSIS
+    # SECTION 3: PRODUCT ANALYSIS (Level 2)
     # =========================================================================
-    st.header("📋 Level 2: Job Profitability")
+    st.header("📦 Level 2: Product Analysis")
+    st.caption("*Performance by Product (within selected Department)*")
+    
+    # Filter products by selected department
+    if selected_dept != "All Departments":
+        prod_filtered = product_summary[product_summary["Department"] == selected_dept].copy()
+    else:
+        prod_filtered = product_summary.copy()
+    
+    prod_filtered = prod_filtered[prod_filtered["Billable_Value"] > 0]
+    
+    # Product selector
+    prod_options = ["All Products"] + sorted(prod_filtered["Product"].unique().tolist())
+    selected_product = st.selectbox("Select Product", prod_options, key="product_sel")
+    
+    if selected_product == "All Products":
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Billable Margin % by Product")
+            chart = alt.Chart(prod_filtered.head(20)).mark_bar().encode(
+                x=alt.X("Billable_Margin_Pct:Q", title="Billable Margin %"),
+                y=alt.Y("Product:N", sort="-x"),
+                color=alt.condition(
+                    alt.datum.Billable_Margin_Pct < 20,
+                    alt.value("#e53935"),
+                    alt.value("#43a047")
+                ),
+                tooltip=["Product", "Department",
+                         alt.Tooltip("Billable_Margin_Pct:Q", format=".1f"),
+                         alt.Tooltip("Quoted_Margin_Pct:Q", format=".1f"),
+                         alt.Tooltip("Job_Count:Q", title="Jobs")]
+            ).properties(height=max(200, min(len(prod_filtered), 20) * 28))
+            st.altair_chart(chart, use_container_width=True)
+        
+        with col2:
+            st.subheader("Hours Variance % by Product")
+            chart = alt.Chart(prod_filtered.head(20)).mark_bar().encode(
+                x=alt.X("Hours_Variance_Pct:Q", title="Hours Variance %"),
+                y=alt.Y("Product:N", sort="-x"),
+                color=alt.condition(
+                    alt.datum.Hours_Variance_Pct > 20,
+                    alt.value("#e53935"),
+                    alt.value("#1e88e5")
+                ),
+                tooltip=["Product", "Department",
+                         alt.Tooltip("Hours_Variance_Pct:Q", format="+.1f"),
+                         alt.Tooltip("Quoted_Hours:Q", format=",.0f"),
+                         alt.Tooltip("Actual_Hours:Q", format=",.0f")]
+            ).properties(height=max(200, min(len(prod_filtered), 20) * 28))
+            st.altair_chart(chart, use_container_width=True)
+        
+        # Product table
+        st.subheader("Product Summary Table")
+        prod_disp = prod_filtered[[
+            "Department", "Product", "Job_Count",
+            "Quoted_Hours", "Actual_Hours", "Hours_Variance_Pct",
+            "Quoted_Amount", "Billable_Value", "Cost_TM",
+            "Profit", "Quoted_Margin_Pct", "Billable_Margin_Pct",
+            "Quoted_Rate_Hr", "Billable_Rate_Hr", "Cost_Rate_Hr"
+        ]].copy()
+        prod_disp.columns = [
+            "Department", "Product", "Jobs",
+            "Quoted Hrs", "Actual Hrs", "Hrs Var %",
+            "Quoted $", "Billable $", "Cost $",
+            "Profit $", "Quoted Margin %", "Billable Margin %",
+            "Quoted $/Hr", "Billable $/Hr", "Cost $/Hr"
+        ]
+        st.dataframe(prod_disp.style.format({
+            "Quoted Hrs": "{:,.0f}", "Actual Hrs": "{:,.0f}", "Hrs Var %": "{:+.1f}%",
+            "Quoted $": "${:,.0f}", "Billable $": "${:,.0f}", "Cost $": "${:,.0f}",
+            "Profit $": "${:,.0f}", "Quoted Margin %": "{:.1f}%", "Billable Margin %": "{:.1f}%",
+            "Quoted $/Hr": "${:,.0f}", "Billable $/Hr": "${:,.0f}", "Cost $/Hr": "${:,.0f}"
+        }), use_container_width=True, height=400)
+    else:
+        prod_row = prod_filtered[prod_filtered["Product"] == selected_product].iloc[0]
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Jobs", int(prod_row["Job_Count"]))
+        c2.metric("Billable Margin", fmt_pct(prod_row["Billable_Margin_Pct"]))
+        c3.metric("Quoted Margin", fmt_pct(prod_row["Quoted_Margin_Pct"]))
+        c4.metric("Profit", fmt_currency(prod_row["Profit"]))
+        c5.metric("Hours Var", f"{prod_row['Hours_Variance']:+,.0f} hrs")
+    
+    st.markdown("---")
+    
+    # =========================================================================
+    # SECTION 4: JOB-LEVEL ANALYSIS (Level 3)
+    # =========================================================================
+    st.header("📋 Level 3: Job Profitability")
     st.caption("*Quote vs Actual per job — identify problem projects*")
     
-    # Filter jobs by category
-    if selected_category != "All Categories":
-        jobs_filtered = job_summary[job_summary["Category"] == selected_category].copy()
-    else:
-        jobs_filtered = job_summary.copy()
+    # Filter jobs by department and product
+    jobs_filtered = job_summary.copy()
+    if selected_dept != "All Departments":
+        jobs_filtered = jobs_filtered[jobs_filtered["Department"] == selected_dept]
+    if selected_product != "All Products":
+        jobs_filtered = jobs_filtered[jobs_filtered["Product"] == selected_product]
     
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -358,43 +495,48 @@ def main():
     col1, col2 = st.columns([3, 1])
     with col1:
         sort_by = st.selectbox("Sort by", [
-            "Margin_Pct", "Profit", "Hours_Variance", "Margin_Erosion", "Cost_TM"
+            "Billable_Margin_Pct", "Profit", "Hours_Variance", "Margin_Erosion", "Cost_TM"
         ], format_func=lambda x: {
-            "Margin_Pct": "Margin % (lowest)", "Profit": "Profit (lowest)",
-            "Hours_Variance": "Hours Variance (highest)", "Margin_Erosion": "Margin Erosion (highest)",
+            "Billable_Margin_Pct": "Billable Margin % (lowest)", 
+            "Profit": "Profit (lowest)",
+            "Hours_Variance": "Hours Variance (highest)", 
+            "Margin_Erosion": "Margin Erosion (highest)",
             "Cost_TM": "Cost (highest)"
         }.get(x, x))
     with col2:
         top_n = st.number_input("Show top N", 10, 500, 50)
     
-    asc = sort_by in ["Margin_Pct", "Profit"]
+    asc = sort_by in ["Billable_Margin_Pct", "Profit"]
     jobs_display = jobs_filtered.sort_values(sort_by, ascending=asc).head(top_n)
     
-    job_cols = ["Job_No", "Job_Name", "Client", "Category",
+    job_cols = ["Job_No", "Job_Name", "Client", "Department", "Product",
                 "Quoted_Hours", "Actual_Hours", "Hours_Variance_Pct",
                 "Quoted_Amount", "Billable_Value", "Cost_TM",
-                "Profit", "Margin_Pct", "Margin_Erosion"]
+                "Profit", "Quoted_Margin_Pct", "Billable_Margin_Pct", "Margin_Erosion"]
     job_disp = jobs_display[job_cols].copy()
-    job_disp.columns = ["Job #", "Job Name", "Client", "Category",
+    job_disp.columns = ["Job #", "Job Name", "Client", "Department", "Product",
                         "Quoted Hrs", "Actual Hrs", "Hrs Var %",
                         "Quoted $", "Billable $", "Cost $",
-                        "Profit $", "Margin %", "Erosion %"]
+                        "Profit $", "Quoted Margin %", "Billable Margin %", "Erosion %"]
     
     st.dataframe(job_disp.style.format({
         "Quoted Hrs": "{:,.1f}", "Actual Hrs": "{:,.1f}", "Hrs Var %": "{:+.1f}%",
         "Quoted $": "${:,.0f}", "Billable $": "${:,.0f}", "Cost $": "${:,.0f}",
-        "Profit $": "${:,.0f}", "Margin %": "{:.1f}%", "Erosion %": "{:+.1f}%"
+        "Profit $": "${:,.0f}", "Quoted Margin %": "{:.1f}%", 
+        "Billable Margin %": "{:.1f}%", "Erosion %": "{:+.1f}%"
     }), use_container_width=True, height=400)
     
     st.markdown("---")
     
     # =========================================================================
-    # SECTION 4: TASK DRILL-DOWN
+    # SECTION 5: TASK DRILL-DOWN (Level 4)
     # =========================================================================
-    st.header("🔍 Level 3: Task Drill-Down")
+    st.header("🔍 Level 4: Task Drill-Down")
     st.caption("*Which task caused the overrun?*")
     
-    job_options = jobs_filtered.apply(lambda r: f"{r['Job_No']} — {r['Job_Name'][:40]}", axis=1).tolist()
+    job_options = jobs_filtered.apply(
+        lambda r: f"{r['Job_No']} — {r['Job_Name'][:40]}", axis=1
+    ).tolist()
     
     if job_options:
         selected_job = st.selectbox("Select Job", ["-- Select --"] + job_options, key="job_sel")
@@ -405,12 +547,13 @@ def main():
             job_tasks = task_summary[task_summary["Job_No"] == job_no].copy()
             
             st.subheader(f"📁 {job_info['Job_Name']}")
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Margin %", fmt_pct(job_info["Margin_Pct"]))
-            c2.metric("Profit", fmt_currency(job_info["Profit"]))
-            c3.metric("Hrs Variance", f"{job_info['Hours_Variance']:+,.0f}")
-            c4.metric("Erosion", f"{job_info['Margin_Erosion']:+.1f}%")
-            c5.metric("Client", str(job_info["Client"])[:20] if pd.notna(job_info["Client"]) else "N/A")
+            c1, c2, c3, c4, c5, c6 = st.columns(6)
+            c1.metric("Billable Margin", fmt_pct(job_info["Billable_Margin_Pct"]))
+            c2.metric("Quoted Margin", fmt_pct(job_info["Quoted_Margin_Pct"]))
+            c3.metric("Profit", fmt_currency(job_info["Profit"]))
+            c4.metric("Hrs Variance", f"{job_info['Hours_Variance']:+,.0f}")
+            c5.metric("Erosion", f"{job_info['Margin_Erosion']:+.1f}%")
+            c6.metric("Client", str(job_info["Client"])[:20] if pd.notna(job_info["Client"]) else "N/A")
             
             # Task chart
             st.subheader("Hours: Quoted vs Actual")
@@ -422,7 +565,9 @@ def main():
             chart = alt.Chart(task_melt).mark_bar().encode(
                 x=alt.X("Hours:Q"),
                 y=alt.Y("Task_Name:N", sort="-x"),
-                color=alt.Color("Type:N", scale=alt.Scale(domain=["Quoted", "Actual"], range=["#1e88e5", "#43a047"])),
+                color=alt.Color("Type:N", scale=alt.Scale(
+                    domain=["Quoted", "Actual"], range=["#1e88e5", "#43a047"]
+                )),
                 xOffset="Type:N",
                 tooltip=["Task_Name", "Type", alt.Tooltip("Hours:Q", format=",.1f")]
             ).properties(height=max(200, len(job_tasks) * 28))
@@ -433,19 +578,21 @@ def main():
             task_cols = ["Task_Name", "Task_Category",
                          "Quoted_Hours", "Actual_Hours", "Hours_Variance",
                          "Quoted_Amount", "Billable_Value", "Cost_TM",
-                         "Profit", "Margin_Pct", "Base_Rate", "Billable_Rate", "Is_Unquoted"]
+                         "Profit", "Quoted_Margin_Pct", "Billable_Margin_Pct",
+                         "Cost_Rate_Hr", "Billable_Rate_Hr", "Quoted_Rate_Hr", "Is_Unquoted"]
             task_disp = job_tasks[task_cols].copy()
             task_disp["Is_Unquoted"] = task_disp["Is_Unquoted"].map({True: "⚠️", False: ""})
             task_disp.columns = ["Task", "Category",
                                  "Quoted Hrs", "Actual Hrs", "Hrs Var",
                                  "Quoted $", "Billable $", "Cost $",
-                                 "Profit $", "Margin %", "Base Rate", "Bill Rate", "Flag"]
+                                 "Profit $", "Quoted Margin %", "Billable Margin %",
+                                 "Cost $/Hr", "Billable $/Hr", "Quoted $/Hr", "Flag"]
             
             st.dataframe(task_disp.style.format({
                 "Quoted Hrs": "{:,.1f}", "Actual Hrs": "{:,.1f}", "Hrs Var": "{:+,.1f}",
                 "Quoted $": "${:,.0f}", "Billable $": "${:,.0f}", "Cost $": "${:,.0f}",
-                "Profit $": "${:,.0f}", "Margin %": "{:.1f}%",
-                "Base Rate": "${:,.0f}", "Bill Rate": "${:,.0f}"
+                "Profit $": "${:,.0f}", "Quoted Margin %": "{:.1f}%", "Billable Margin %": "{:.1f}%",
+                "Cost $/Hr": "${:,.0f}", "Billable $/Hr": "${:,.0f}", "Quoted $/Hr": "${:,.0f}"
             }), use_container_width=True)
             
             unquoted = job_tasks[job_tasks["Is_Unquoted"]]
@@ -455,37 +602,43 @@ def main():
     st.markdown("---")
     
     # =========================================================================
-    # SECTION 5: SYNTHESIS
+    # SECTION 6: SYNTHESIS
     # =========================================================================
     st.header("🔬 Synthesis: Why Jobs Run Over")
     
     col1, col2, col3 = st.columns(3)
     with col1:
         st.subheader("📌 Scope Creep")
-        st.metric("Unquoted Tasks", f"{causes['scope_creep']['task_count']:,}")
-        st.metric("Cost", fmt_currency(causes['scope_creep']['total_cost']))
-        st.metric("Hours", fmt_hours(causes['scope_creep']['total_hours']))
+        st.metric("Unquoted Tasks", f"{causes['scope_creep']['count']:,}")
+        st.metric("Cost", fmt_currency(causes['scope_creep']['cost']))
+        st.metric("Hours", fmt_hours(causes['scope_creep']['hours']))
     with col2:
         st.subheader("⏱️ Underestimation")
-        st.metric("Overrun Tasks", f"{causes['underestimation']['task_count']:,}")
+        st.metric("Overrun Tasks", f"{causes['underestimation']['count']:,}")
         st.metric("Excess Hours", fmt_hours(causes['underestimation']['excess_hours']))
     with col3:
         st.subheader("📝 Unbilled Work")
-        st.metric("Tasks", f"{causes['unbilled_work']['task_count']:,}")
-        st.metric("Unbilled Hours", fmt_hours(causes['unbilled_work']['unbilled_hours']))
+        st.metric("Tasks", f"{causes['unbilled']['count']:,}")
+        st.metric("Unbilled Hours", fmt_hours(causes['unbilled']['hours']))
     
     st.subheader("🚨 Top 10 Overruns")
     top_over = get_top_overruns(job_summary, 10, "Hours_Variance")
     if len(top_over) > 0:
-        st.dataframe(top_over[["Job_No", "Job_Name", "Client", "Hours_Variance", "Profit", "Margin_Pct"]].style.format({
-            "Hours_Variance": "{:+,.0f}", "Profit": "${:,.0f}", "Margin_Pct": "{:.1f}%"
+        st.dataframe(top_over[[
+            "Job_No", "Job_Name", "Client", "Department", "Product",
+            "Hours_Variance", "Profit", "Billable_Margin_Pct"
+        ]].style.format({
+            "Hours_Variance": "{:+,.0f}", "Profit": "${:,.0f}", "Billable_Margin_Pct": "{:.1f}%"
         }), use_container_width=True)
     
     st.subheader("💸 Loss-Making Jobs")
     losses = get_loss_making_jobs(job_summary).head(10)
     if len(losses) > 0:
-        st.dataframe(losses[["Job_No", "Job_Name", "Client", "Profit", "Margin_Pct", "Cost_TM"]].style.format({
-            "Profit": "${:,.0f}", "Margin_Pct": "{:.1f}%", "Cost_TM": "${:,.0f}"
+        st.dataframe(losses[[
+            "Job_No", "Job_Name", "Client", "Department", "Product",
+            "Profit", "Billable_Margin_Pct", "Cost_TM"
+        ]].style.format({
+            "Profit": "${:,.0f}", "Billable_Margin_Pct": "{:.1f}%", "Cost_TM": "${:,.0f}"
         }), use_container_width=True)
     else:
         st.success("✅ No loss-making jobs!")
@@ -496,6 +649,7 @@ def main():
         "**Job Profitability Analysis** | "
         f"Filters: {'Excl SG Alloc' if exclude_sg else 'Incl SG Alloc'}, "
         f"{'Billable Only' if billable_only else 'All Tasks'} | "
+        f"Department: {selected_dept} | "
         f"Period: {selected_fy}"
     )
 
