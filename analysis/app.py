@@ -469,9 +469,9 @@ def main():
   # =========================================================================
   # TABS
   # =========================================================================
-  tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+  tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "Executive Summary", "Monthly Trends", "Drill-Down",
-    "Insights", "Job Diagnosis", "Reconciliation", "Smart Quote Builder"
+    "Insights", "Job Diagnosis", "Profitability Drivers", "Reconciliation", "Smart Quote Builder"
   ])
   
   # =========================================================================
@@ -1323,9 +1323,167 @@ def main():
             st.markdown(f"- {t['Task_Name']}: ${abs(t['Quote_Gap']):,.0f} below internal rates")
   
   # =========================================================================
-  # TAB 6: RECONCILIATION
+  # TAB 6: PROFITABILITY DRIVERS
   # =========================================================================
   with tab6:
+    st.header("Profitability Drivers")
+    callout_list(
+      "How to use this section",
+      [
+        "Each lens isolates a different margin driver",
+        "Use the erosion summary to prioritize operational fixes",
+        "Focus on consistent patterns, not single outliers",
+      ]
+    )
+    
+    driver_df = job_summary.copy()
+    driver_df["Overrun_Cost"] = np.where(
+      driver_df["Hours_Variance"] > 0,
+      driver_df["Hours_Variance"] * driver_df["Cost_Rate_Hr"],
+      0
+    )
+    driver_df["Underquote_Cost"] = np.where(driver_df["Quote_Gap"] < 0, -driver_df["Quote_Gap"], 0)
+    driver_df["Rate_Erosion"] = np.where(
+      driver_df["Quoted_Rate_Hr"] < driver_df["Billable_Rate_Hr"],
+      (driver_df["Billable_Rate_Hr"] - driver_df["Quoted_Rate_Hr"]) * driver_df["Quoted_Hours"],
+      0
+    )
+    driver_df["Total_Erosion"] = driver_df["Overrun_Cost"] + driver_df["Underquote_Cost"] + driver_df["Rate_Erosion"]
+    
+    erosion_totals = pd.DataFrame({
+      "Driver": ["Delivery Overruns", "Underquoting", "Rate Erosion"],
+      "Amount": [
+        driver_df["Overrun_Cost"].sum(),
+        driver_df["Underquote_Cost"].sum(),
+        driver_df["Rate_Erosion"].sum(),
+      ],
+    })
+    st.subheader("Margin Erosion Summary")
+    erosion_chart = alt.Chart(erosion_totals).mark_bar(size=38, cornerRadiusEnd=4).encode(
+      y=alt.Y("Driver:N", sort="-x"),
+      x=alt.X("Amount:Q", title="Estimated margin erosion ($)", axis=alt.Axis(format="$~s")),
+      color=alt.Color("Driver:N", scale=alt.Scale(range=["#e4572e", "#f4d35e", "#6c757d"])),
+      tooltip=["Driver", alt.Tooltip("Amount:Q", format="$,.0f")]
+    ).properties(height=240)
+    st.altair_chart(erosion_chart, width='stretch')
+    callout_list(
+      "What it means",
+      [
+        "Delivery overruns reflect extra hours beyond the quote",
+        "Underquoting shows pricing below internal benchmarks",
+        "Rate erosion captures discounting vs billable rates",
+      ]
+    )
+    
+    st.subheader("Pricing vs Margin Lens")
+    pricing_chart = alt.Chart(driver_df).mark_circle(size=120).encode(
+      x=alt.X("Quote_Gap_Pct:Q", title="Quote Gap %"),
+      y=alt.Y("Margin_Pct:Q", title="Margin %"),
+      color=alt.Color("Department:N"),
+      size=alt.Size("Quoted_Amount:Q", title="Revenue", scale=alt.Scale(range=[80, 800])),
+      tooltip=[
+        "Job_Name", "Department", "Product",
+        alt.Tooltip("Quote_Gap_Pct:Q", format=".1f", title="Quote Gap %"),
+        alt.Tooltip("Margin_Pct:Q", format=".1f", title="Margin %"),
+        alt.Tooltip("Quoted_Amount:Q", format="$,.0f", title="Revenue"),
+      ],
+    ).properties(height=340)
+    st.altair_chart(pricing_chart, width='stretch')
+    callout_list(
+      "Operational insight",
+      [
+        "Bottom-left quadrant indicates discounting and poor margin",
+        "Right shift without margin lift suggests delivery issues",
+      ]
+    )
+    
+    st.subheader("Delivery Efficiency Lens")
+    delivery_chart = alt.Chart(driver_df).mark_circle(size=120).encode(
+      x=alt.X("Hours_Variance_Pct:Q", title="Hours Variance %"),
+      y=alt.Y("Margin_Pct:Q", title="Margin %"),
+      color=alt.Color("Department:N"),
+      size=alt.Size("Actual_Hours:Q", title="Actual Hours", scale=alt.Scale(range=[80, 800])),
+      tooltip=[
+        "Job_Name", "Department", "Product",
+        alt.Tooltip("Hours_Variance_Pct:Q", format=".0f", title="Hours Var %"),
+        alt.Tooltip("Margin_Pct:Q", format=".1f", title="Margin %"),
+        alt.Tooltip("Actual_Hours:Q", format=",.0f", title="Actual Hours"),
+      ],
+    ).properties(height=340)
+    st.altair_chart(delivery_chart, width='stretch')
+    callout_list(
+      "Operational insight",
+      [
+        "High variance with low margin points to estimation or scope control issues",
+        "High variance with healthy margin may indicate premium pricing",
+      ]
+    )
+    
+    st.subheader("Rate Realization Lens")
+    rate_gap = driver_df.copy()
+    rate_gap["Rate_Delta"] = rate_gap["Effective_Rate_Hr"] - rate_gap["Cost_Rate_Hr"]
+    rate_chart = alt.Chart(rate_gap).mark_circle(size=120).encode(
+      x=alt.X("Rate_Delta:Q", title="Effective Rate - Cost Rate ($/hr)"),
+      y=alt.Y("Margin_Pct:Q", title="Margin %"),
+      color=alt.Color("Department:N"),
+      size=alt.Size("Actual_Hours:Q", title="Actual Hours", scale=alt.Scale(range=[80, 800])),
+      tooltip=[
+        "Job_Name", "Department", "Product",
+        alt.Tooltip("Rate_Delta:Q", format="$,.0f", title="Rate Delta"),
+        alt.Tooltip("Effective_Rate_Hr:Q", format="$,.0f", title="Effective Rate/Hr"),
+        alt.Tooltip("Cost_Rate_Hr:Q", format="$,.0f", title="Cost Rate/Hr"),
+      ],
+    ).properties(height=340)
+    st.altair_chart(rate_chart, width='stretch')
+    callout_list(
+      "Operational insight",
+      [
+        "Negative rate delta indicates work priced below cost",
+        "Improve rate discipline or reduce cost to restore margin",
+      ]
+    )
+    
+    st.subheader("Scope Creep Lens")
+    unquoted = get_unquoted_tasks(task_summary).head(15)
+    if len(unquoted) > 0:
+      scope_chart = alt.Chart(unquoted).mark_bar(size=20, cornerRadiusEnd=3).encode(
+        y=alt.Y("Task_Name:N", sort="-x", title="Task"),
+        x=alt.X("Base_Cost:Q", title="Unquoted Cost ($)", axis=alt.Axis(format="$~s")),
+        color=alt.value("#e4572e"),
+        tooltip=["Task_Name", alt.Tooltip("Actual_Hours:Q", format=",.0f", title="Hours"), alt.Tooltip("Base_Cost:Q", format="$,.0f")]
+      ).properties(height=320)
+      st.altair_chart(scope_chart, width='stretch')
+    else:
+      st.info("No unquoted tasks found for the current filters.")
+    callout_list(
+      "Operational insight",
+      [
+        "Repeated unquoted tasks signal scope control gaps",
+        "Use this list to update templates or pricing rules",
+      ]
+    )
+    
+    st.subheader("Top Margin Erosion Jobs")
+    erosion_jobs = driver_df.sort_values("Total_Erosion", ascending=False).head(15)
+    st.dataframe(
+      erosion_jobs[[
+        "Job_No", "Job_Name", "Department", "Product",
+        "Overrun_Cost", "Underquote_Cost", "Rate_Erosion", "Total_Erosion", "Margin_Pct"
+      ]].style.format({
+        "Overrun_Cost": "${:,.0f}",
+        "Underquote_Cost": "${:,.0f}",
+        "Rate_Erosion": "${:,.0f}",
+        "Total_Erosion": "${:,.0f}",
+        "Margin_Pct": "{:.1f}%",
+      }),
+      width='stretch',
+      height=320
+    )
+  
+  # =========================================================================
+  # TAB 7: RECONCILIATION
+  # =========================================================================
+  with tab7:
     st.header("Data Reconciliation")
     callout_list(
       "Reconciliation explainer",
@@ -1374,9 +1532,9 @@ def main():
         st.markdown("---")
   
   # =========================================================================
-  # TAB 7: SMART QUOTE BUILDER
+  # TAB 8: SMART QUOTE BUILDER
   # =========================================================================
-  with tab7:
+  with tab8:
     st.header("Smart Quote Builder")
     callout_list(
       "How this works",
