@@ -660,6 +660,41 @@ def main():
                 ]
             )
             
+            st.subheader("🧭 Monthly Health Panel")
+            monthly_health = monthly_summary.copy()
+            monthly_health["Overrun_Rate"] = np.where(
+                monthly_health["Hours_Variance_Pct"] > 0, monthly_health["Hours_Variance_Pct"], 0
+            )
+            health_fields = [
+                "Margin_Pct", "Quote_Gap_Pct", "Hours_Variance_Pct", "Job_Count"
+            ]
+            health_melt = monthly_health.melt(
+                id_vars=["Month"], value_vars=health_fields, var_name="Metric", value_name="Value"
+            )
+            metric_labels = {
+                "Margin_Pct": "Margin %",
+                "Quote_Gap_Pct": "Quote Gap %",
+                "Hours_Variance_Pct": "Hours Variance %",
+                "Job_Count": "# Jobs",
+            }
+            health_melt["Metric"] = health_melt["Metric"].map(metric_labels)
+            health_chart = alt.Chart(health_melt).mark_line(point=alt.OverlayMarkDef(size=40)).encode(
+                x=alt.X("Month:N", sort=list(monthly_summary["Month"]), axis=alt.Axis(labelAngle=-45)),
+                y=alt.Y("Value:Q", axis=alt.Axis(title=None)),
+                color=alt.Color("Metric:N", scale=alt.Scale(
+                    range=["#2ecc71", "#e4572e", "#2e86ab", "#6b705c"]
+                )),
+                tooltip=["Month", "Metric", alt.Tooltip("Value:Q", format=",.1f")]
+            ).properties(height=320)
+            st.altair_chart(health_chart, use_container_width=True)
+            callout_list(
+                "Health panel",
+                [
+                    "Compare pricing (Quote Gap) vs delivery (Hours Variance)",
+                    "Job count spikes indicate volume-driven months",
+                ]
+            )
+
             # Quoted vs Expected Quote
             st.subheader("📉 Quoted Amount vs Expected Quote")
             compare_data = monthly_summary.melt(
@@ -689,6 +724,37 @@ def main():
                 ]
             )
             
+            st.subheader("💲 Rate & Cost Trends")
+            rate_data = monthly_summary.melt(
+                id_vars=["Month"],
+                value_vars=["Quoted_Rate_Hr", "Effective_Rate_Hr", "Billable_Rate_Hr", "Cost_Rate_Hr"],
+                var_name="Type",
+                value_name="Rate"
+            )
+            rate_labels = {
+                "Quoted_Rate_Hr": "Quoted Rate/Hr",
+                "Effective_Rate_Hr": "Effective Rate/Hr",
+                "Billable_Rate_Hr": "Billable Rate/Hr",
+                "Cost_Rate_Hr": "Cost Rate/Hr",
+            }
+            rate_data["Type"] = rate_data["Type"].map(rate_labels)
+            rate_chart = alt.Chart(rate_data).mark_line(point=alt.OverlayMarkDef(size=45), strokeWidth=2.5).encode(
+                x=alt.X("Month:N", sort=list(monthly_summary["Month"]), axis=alt.Axis(labelAngle=-45)),
+                y=alt.Y("Rate:Q", title="Rate per hour ($)"),
+                color=alt.Color("Type:N", scale=alt.Scale(
+                    range=["#2e86ab", "#2ecc71", "#6c757d", "#e4572e"]
+                )),
+                tooltip=["Month", "Type", alt.Tooltip("Rate:Q", format="$,.0f")]
+            ).properties(height=320)
+            st.altair_chart(rate_chart, use_container_width=True)
+            callout_list(
+                "Rate story",
+                [
+                    "Effective Rate/Hr below Cost Rate/Hr signals loss pressure",
+                    "Divergence between Quoted vs Billable suggests discounting",
+                ]
+            )
+
             # Margin trend
             st.subheader("📊 Margin $ and %")
             margin_line = alt.Chart(monthly_summary).mark_line(point=alt.OverlayMarkDef(size=55), strokeWidth=2, color="#2ecc71").encode(
@@ -723,6 +789,22 @@ def main():
                         "Use this to isolate high-variance departments",
                     ]
                 )
+                
+                st.subheader("🏢 Quote Gap % by Department")
+                dept_quote = alt.Chart(monthly_by_dept).mark_line(point=alt.OverlayMarkDef(size=40)).encode(
+                    x=alt.X("Month:N", sort=list(monthly_summary["Month"]), axis=alt.Axis(labelAngle=-45)),
+                    y=alt.Y("Quote_Gap_Pct:Q", title="Quote Gap %"),
+                    color="Department:N",
+                    tooltip=["Month", "Department", alt.Tooltip("Quote_Gap_Pct:Q", format=".0f")]
+                ).properties(height=350)
+                st.altair_chart(dept_quote, use_container_width=True)
+                callout_list(
+                    "Department pricing",
+                    [
+                        "Negative Quote Gap % indicates discounting by department",
+                        "Persistent gaps are candidates for rate adjustments",
+                    ]
+                )
             
             with st.expander("📋 Monthly Data Table"):
                 st.dataframe(monthly_summary[[
@@ -743,6 +825,38 @@ def main():
                 "Use Quote Gap to spot pricing issues",
             ]
         )
+        
+        if len(dept_summary) > 0:
+            st.subheader("🏢 Department Scoreboard")
+            dept_metrics = dept_summary.copy()
+            dept_metrics["Margin_Band"] = np.where(
+                dept_metrics["Margin_Pct"] >= 35, "Healthy",
+                np.where(dept_metrics["Margin_Pct"] < 20, "At Risk", "Watch")
+            )
+            dept_scatter = alt.Chart(dept_metrics).mark_circle(size=240).encode(
+                x=alt.X("Quote_Gap_Pct:Q", title="Quote Gap %"),
+                y=alt.Y("Margin_Pct:Q", title="Margin %"),
+                color=alt.Color("Margin_Band:N", scale=alt.Scale(
+                    domain=["Healthy", "Watch", "At Risk"],
+                    range=["#2ecc71", "#f4d35e", "#e4572e"]
+                )),
+                size=alt.Size("Job_Count:Q", title="# Jobs", scale=alt.Scale(range=[200, 1200])),
+                tooltip=[
+                    "Department",
+                    alt.Tooltip("Job_Count:Q", format=",.0f", title="# Jobs"),
+                    alt.Tooltip("Margin_Pct:Q", format=".1f", title="Margin %"),
+                    alt.Tooltip("Quote_Gap_Pct:Q", format=".1f", title="Quote Gap %"),
+                    alt.Tooltip("Hours_Variance_Pct:Q", format=".0f", title="Hours Var %"),
+                ],
+            ).properties(height=360)
+            st.altair_chart(dept_scatter, use_container_width=True)
+            callout_list(
+                "How to use",
+                [
+                    "Right side = premium pricing, left side = discounting",
+                    "Lower margin + negative quote gap indicates urgent pricing fixes",
+                ]
+            )
         
         # Department
         st.subheader("Level 1: Department Performance")
