@@ -613,7 +613,7 @@ def main():
             )),
             tooltip=["Step", alt.Tooltip("Amount:Q", format="$,.0f")]
         ).properties(height=300)
-        st.altair_chart(bridge_chart, use_container_width=True)
+        st.altair_chart(bridge_chart, width='stretch')
         callout_list(
             "Bridge chart",
             [
@@ -677,7 +677,7 @@ def main():
                 rule = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(color="gray", strokeDash=[5,5]).encode(y="y:Q")
                 trend_chart = trend_chart + rule
             
-            st.altair_chart(trend_chart, use_container_width=True)
+            st.altair_chart(trend_chart, width='stretch')
             callout_list(
                 "Chart guide",
                 [
@@ -713,7 +713,7 @@ def main():
                 )),
                 tooltip=["Month", "Metric", alt.Tooltip("Value:Q", format=",.1f")]
             ).properties(height=320)
-            st.altair_chart(health_chart, use_container_width=True)
+            st.altair_chart(health_chart, width='stretch')
             callout_list(
                 "Health panel",
                 [
@@ -742,7 +742,7 @@ def main():
                 xOffset="Type:N",
                 tooltip=["Month", "Type", alt.Tooltip("Amount:Q", format="$,.0f")]
             ).properties(height=300)
-            st.altair_chart(compare_chart, use_container_width=True)
+            st.altair_chart(compare_chart, width='stretch')
             callout_list(
                 "Quoted vs Expected",
                 [
@@ -773,7 +773,7 @@ def main():
                 )),
                 tooltip=["Month", "Type", alt.Tooltip("Rate:Q", format="$,.0f")]
             ).properties(height=320)
-            st.altair_chart(rate_chart, use_container_width=True)
+            st.altair_chart(rate_chart, width='stretch')
             callout_list(
                 "Rate story",
                 [
@@ -789,7 +789,7 @@ def main():
                 y=alt.Y("Margin_Pct:Q", title="Margin %"),
                 tooltip=["Month", alt.Tooltip("Margin_Pct:Q", format=".1f"), alt.Tooltip("Margin:Q", format="$,.0f")]
             ).properties(height=300)
-            st.altair_chart(margin_line, use_container_width=True)
+            st.altair_chart(margin_line, width='stretch')
             callout_list(
                 "Margin line",
                 [
@@ -808,7 +808,7 @@ def main():
                     color="Department:N",
                     tooltip=["Month", "Department", alt.Tooltip("Margin_Pct:Q", format=".0f")]
                 ).properties(height=350)
-                st.altair_chart(dept_trend, use_container_width=True)
+                st.altair_chart(dept_trend, width='stretch')
                 callout_list(
                     "Department trend",
                     [
@@ -824,7 +824,7 @@ def main():
                     color="Department:N",
                     tooltip=["Month", "Department", alt.Tooltip("Quote_Gap_Pct:Q", format=".0f")]
                 ).properties(height=350)
-                st.altair_chart(dept_quote, use_container_width=True)
+                st.altair_chart(dept_quote, width='stretch')
                 callout_list(
                     "Department pricing",
                     [
@@ -837,7 +837,7 @@ def main():
                 st.dataframe(monthly_summary[[
                     "Month", "Job_Count", "Quoted_Amount", "Expected_Quote", "Quote_Gap",
                     "Base_Cost", "Margin", "Margin_Pct", "Hours_Variance_Pct"
-                ]], use_container_width=True)
+                ]], width='stretch')
     
     # =========================================================================
     # TAB 3: DRILL-DOWN
@@ -884,7 +884,7 @@ def main():
                     alt.Tooltip("Hours_Variance_Pct:Q", format=".0f", title="Hours Var %"),
                 ],
             ).properties(height=360)
-            st.altair_chart(dept_scatter, use_container_width=True)
+            st.altair_chart(dept_scatter, width='stretch')
             callout_list(
                 "How to use",
                 [
@@ -900,10 +900,9 @@ def main():
                 y=alt.Y("Department:N", sort="-x"),
                 x=alt.X("Margin_Pct:Q", title="Margin %", axis=alt.Axis(format="~s")),
                 color=alt.condition(
-                    dept_select,
-                    alt.value("#2e86ab"),
-                    alt.condition(alt.datum.Margin_Pct < 20, alt.value("#e74c3c"), alt.value("#2ecc71"))
+                    alt.datum.Margin_Pct < 20, alt.value("#e74c3c"), alt.value("#2ecc71")
                 ),
+                opacity=alt.condition(dept_select, alt.value(1), alt.value(0.35)),
                 tooltip=["Department",
                          alt.Tooltip("Margin_Pct:Q", format=".1f", title="Margin %"),
                          alt.Tooltip("Margin:Q", format="$,.0f", title="Margin $"),
@@ -911,7 +910,7 @@ def main():
             ).add_params(dept_select).properties(height=max(200, len(dept_summary) * 40))
             
             rule = alt.Chart(pd.DataFrame({"x": [35]})).mark_rule(color="orange", strokeDash=[3,3]).encode(x="x:Q")
-            st.altair_chart(dept_chart + rule, use_container_width=True)
+            st.altair_chart(dept_chart + rule, width='stretch')
             callout_list(
                 "Department bar chart",
                 [
@@ -930,7 +929,7 @@ def main():
                     "Quote_Gap": "${:,.0f}", "Base_Cost": "${:,.0f}",
                     "Margin": "${:,.0f}", "Margin_Pct": "{:.1f}%",
                     "Hours_Variance_Pct": "{:+.0f}%"
-                }), use_container_width=True)
+                }), width='stretch')
         
         st.markdown("---")
         
@@ -949,7 +948,7 @@ def main():
                          alt.Tooltip("Margin_Pct:Q", format=".1f"),
                          alt.Tooltip("Quote_Gap:Q", format="$,.0f")]
             ).properties(height=320)
-            st.altair_chart(prod_chart, use_container_width=True)
+            st.altair_chart(prod_chart, width='stretch')
             callout_list(
                 "Product bar chart",
                 [
@@ -1001,7 +1000,7 @@ def main():
                     alt.Tooltip("Effective_Rate_Hr:Q", format="$,.0f", title="Effective Rate/Hr"),
                 ],
             ).properties(height=360)
-            st.altair_chart(job_chart, use_container_width=True)
+            st.altair_chart(job_chart, width='stretch')
             callout_list(
                 "Job bubble chart",
                 [
@@ -1019,7 +1018,7 @@ def main():
                 "Quote_Gap": "${:,.0f}", "Base_Cost": "${:,.0f}",
                 "Margin": "${:,.0f}", "Margin_Pct": "{:.1f}%",
                 "Hours_Variance_Pct": "{:+.0f}%"
-            }), use_container_width=True, height=400)
+            }), width='stretch', height=400)
             callout_list(
                 "Job table",
                 [
@@ -1076,7 +1075,7 @@ def main():
                         "Quoted $": "${:,.0f}", "Expected $": "${:,.0f}",
                         "Quote Gap": "${:,.0f}", "Cost": "${:,.0f}",
                         "Margin": "${:,.0f}"
-                    }), use_container_width=True)
+                    }), width='stretch')
     
     # =========================================================================
     # TAB 4: INSIGHTS
@@ -1304,14 +1303,14 @@ def main():
             "Filter": ["SG Allocation", "Non-Billable", "Other FY", "Other Dept"],
             "Excluded": [recon["excluded_sg_allocation"], recon["excluded_non_billable"],
                          recon["excluded_other_fy"], recon["excluded_other_dept"]]
-        }), use_container_width=True, hide_index=True)
+        }), width='stretch', hide_index=True)
         
         st.subheader("Validation Totals")
         totals_df = pd.DataFrame({
             "Metric": list(recon["totals"].keys()),
             "Value": [f"{v:,.2f}" if isinstance(v, float) else str(v) for v in recon["totals"].values()]
         })
-        st.dataframe(totals_df, use_container_width=True, hide_index=True)
+        st.dataframe(totals_df, width='stretch', hide_index=True)
         
         st.subheader("📐 Metric Definitions")
         st.markdown("""
@@ -1394,7 +1393,7 @@ def main():
                         "Billable_Rate_Hr": "${:,.0f}",
                         "Cost_Rate_Hr": "${:,.0f}",
                     }),
-                    use_container_width=True,
+                    width='stretch',
                     height=320
                 )
                 
@@ -1424,7 +1423,7 @@ def main():
                     
                     edited = st.data_editor(
                         builder_df,
-                        use_container_width=True,
+                        width='stretch',
                         hide_index=True,
                         column_config={
                             "Task_Name": st.column_config.TextColumn("Task"),
@@ -1457,7 +1456,7 @@ def main():
                     
                     custom_items = st.data_editor(
                         st.session_state["custom_items"],
-                        use_container_width=True,
+                        width='stretch',
                         num_rows="dynamic",
                         hide_index=True,
                         column_config={
