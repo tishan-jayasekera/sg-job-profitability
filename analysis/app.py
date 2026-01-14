@@ -260,6 +260,53 @@ def apply_chart_theme():
     alt.themes.enable("profit_theme")
 
 
+@st.cache_data(show_spinner=False)
+def load_and_parse_data(source_key, source_payload):
+    if source_key == "bytes":
+        df_raw = load_raw_data(source_payload)
+    else:
+        df_raw = load_raw_data(source_payload)
+    df_parsed = clean_and_parse(df_raw)
+    return df_raw, df_parsed
+
+
+@st.cache_data(show_spinner=False)
+def filter_data(df_parsed, exclude_sg_allocation, billable_only, fiscal_year, department):
+    df_filtered, recon = apply_filters(
+        df_parsed,
+        exclude_sg_allocation=exclude_sg_allocation,
+        billable_only=billable_only,
+        fiscal_year=fiscal_year,
+        department=department
+    )
+    recon = compute_reconciliation_totals(df_filtered, recon)
+    return df_filtered, recon
+
+
+@st.cache_data(show_spinner=False)
+def compute_summaries(df_filtered):
+    dept_summary = compute_department_summary(df_filtered)
+    product_summary = compute_product_summary(df_filtered)
+    job_summary = compute_job_summary(df_filtered)
+    task_summary = compute_task_summary(df_filtered)
+    monthly_summary = compute_monthly_summary(df_filtered)
+    monthly_by_dept = compute_monthly_by_department(df_filtered)
+    metrics = calculate_overall_metrics(job_summary)
+    causes = analyze_overrun_causes(task_summary)
+    insights = generate_insights(job_summary, dept_summary, monthly_summary, task_summary)
+    return (
+        dept_summary,
+        product_summary,
+        job_summary,
+        task_summary,
+        monthly_summary,
+        monthly_by_dept,
+        metrics,
+        causes,
+        insights,
+    )
+
+
 # =============================================================================
 # MAIN APP
 # =============================================================================
@@ -311,8 +358,10 @@ def main():
     uploaded = st.sidebar.file_uploader("Upload Excel", type=["xlsx", "xls"])
     
     if uploaded:
-        data_source = uploaded
+        data_key = "bytes"
+        data_source = uploaded.getvalue()
     elif data_path.exists():
+        data_key = "path"
         data_source = str(data_path)
     else:
         st.warning("⚠️ Upload data file or place in `data/` folder")
@@ -320,8 +369,7 @@ def main():
     
     try:
         with st.spinner("Loading data..."):
-            df_raw = load_raw_data(data_source)
-            df_parsed = clean_and_parse(df_raw)
+            df_raw, df_parsed = load_and_parse_data(data_key, data_source)
         st.sidebar.success(f"✅ {len(df_raw):,} records")
     except Exception as e:
         st.error(f"Error: {e}")
@@ -353,7 +401,13 @@ def main():
         df_parsed, exclude_sg_allocation=exclude_sg, billable_only=billable_only,
         fiscal_year=selected_fy, department=dept_filter
     )
-    recon = compute_reconciliation_totals(df_filtered, recon)
+    df_filtered, recon = filter_data(
+        df_parsed,
+        exclude_sg_allocation=exclude_sg,
+        billable_only=billable_only,
+        fiscal_year=selected_fy,
+        department=dept_filter
+    )
     
     if len(df_filtered) == 0:
         st.error("No data after applying filters.")
@@ -361,15 +415,17 @@ def main():
     
     # Compute summaries
     with st.spinner("Computing..."):
-        dept_summary = compute_department_summary(df_filtered)
-        product_summary = compute_product_summary(df_filtered)
-        job_summary = compute_job_summary(df_filtered)
-        task_summary = compute_task_summary(df_filtered)
-        monthly_summary = compute_monthly_summary(df_filtered)
-        monthly_by_dept = compute_monthly_by_department(df_filtered)
-        metrics = calculate_overall_metrics(job_summary)
-        causes = analyze_overrun_causes(task_summary)
-        insights = generate_insights(job_summary, dept_summary, monthly_summary, task_summary)
+        (
+            dept_summary,
+            product_summary,
+            job_summary,
+            task_summary,
+            monthly_summary,
+            monthly_by_dept,
+            metrics,
+            causes,
+            insights,
+        ) = compute_summaries(df_filtered)
     
     st.sidebar.markdown("---")
     st.sidebar.metric("Records", f"{recon['final_records']:,}")
