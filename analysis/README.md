@@ -1,186 +1,224 @@
-# Job Profitability Analysis Dashboard — Trend Edition
+# Job Profitability Analysis Dashboard
 
-An interactive Streamlit dashboard for analyzing job profitability with **month-on-month trend analysis**, **narrative insights**, and **full metric traceability**.
+A Streamlit dashboard for analyzing job profitability with **correct financial logic** and **root cause analysis**.
 
-## Key Features
+## ⚠️ Critical Financial Definitions
 
-### 📈 Month-on-Month Trend Analysis
-- Track margin evolution across the financial year
-- Compare Quoted vs Billable vs Cost trends
-- Visualize department performance over time
-- Revenue realization tracking
+Understanding these definitions is essential for correct interpretation:
 
-### 💡 Narrative-Driven Insights
-- Automated headline generation
-- Margin driver identification
-- Quoting accuracy analysis
-- Actionable recommendations
+| Term | Definition | Source | Role |
+|------|------------|--------|------|
+| **Quoted Amount** | The client quote | `[Job Task] Quoted Amount` | **THIS IS REVENUE** |
+| **Invoiced Amount** | What was actually billed | `[Job Task] Invoiced Amount` | Actual revenue captured |
+| **Base Cost** | Internal labor cost | `Actual Hours × Cost Rate/Hr` | True cost |
+| **Billable Value** | Hours × Billable Rate | Calculated | ⚠️ **Internal only, NOT revenue** |
+
+### Why This Matters
+
+**Wrong approach (what many dashboards do):**
+> "Revenue = Billable Value (Hours × Billable Rate)"
+
+**Correct approach (what this dashboard does):**
+> "Revenue = Quoted Amount (client quote)"
+
+The Quoted Amount is the committed number — it's what will be invoiced and recognized as revenue. Billable Rate is an internal control tool for margin management, not revenue recognition.
+
+---
+
+## Margin Calculations
+
+### Quoted Margin (Expected)
+```
+Quoted Margin = Quoted Amount - Base Cost
+```
+*What we expected to make when we quoted the job.*
+
+### Actual Margin (Realized)
+```
+Actual Margin = Invoiced Amount - Base Cost
+```
+*What we actually made based on what was billed.*
+
+### Margin Variance
+```
+Margin Variance = Actual Margin - Quoted Margin
+```
+*Negative = margin eroded. Positive = margin improved.*
+
+---
+
+## Realization: The Key Metric
+
+```
+Realization % = (Invoiced Amount / Quoted Amount) × 100
+```
+
+| Realization | Meaning |
+|-------------|---------|
+| **100%** | Billed exactly what was quoted |
+| **<100%** | Write-off, discount, or scope reduction |
+| **>100%** | Change orders or additional billing |
+
+**Target: 95%+**
+
+---
+
+## Why Did Margin Erode?
+
+This dashboard diagnoses margin erosion by examining five root causes:
+
+### 1. Was the Quote Too Low?
+- **Signal:** Quoted Margin % below 35%
+- **Signal:** Quoted Rate/Hr below Billable Rate (negative rate gap)
+- **Fix:** Review quoting process, update rate cards
+
+### 2. Was Scope Not Controlled?
+- **Signal:** Unquoted tasks appear (scope creep)
+- **Signal:** Actual Hours >> Quoted Hours
+- **Fix:** Implement change order process, improve estimation
+
+### 3. Were Base Rates Too High? (Wrong Resourcing)
+- **Signal:** Cost Rate/Hr > Billable Rate/Hr
+- **Signal:** Senior staff on junior tasks
+- **Fix:** Resource allocation review
+
+### 4. Was Revenue Not Captured?
+- **Signal:** Realization < 100%
+- **Signal:** Write-off amount > 0
+- **Fix:** Billing process review, discount approval workflow
+
+### 5. Was There Rate Mismatch?
+- **Signal:** Large gap between Quoted Rate/Hr and Billable Rate/Hr
+- **Fix:** Align quoting with standard rates
+
+---
+
+## Dashboard Features
+
+### 📊 Executive Summary
+- Quoted vs Invoiced revenue comparison
+- Margin bridge: Quoted → Invoiced → Cost → Margin
+- Realization % with status indicators
+- Performance flags (losses, overruns, write-offs)
+
+### 📈 Monthly Trends
+- Realization % over time
+- Quoted vs Actual margin trends
+- Revenue capture patterns
+- Department-level comparisons
 
 ### 🏢 Hierarchical Drill-Down
 - Department → Product → Job → Task
-- Full rollup of all metrics at each level
-- Variance analysis at every layer
+- Filter by loss-making, low realization, write-offs
+- Task-level scope creep identification
 
-### ⚖️ Quoted vs Actual Reconciliation
-- **Quoted Margin** = Quoted Amount – Base Cost
-- **Actual Margin** = Billable Value – Base Cost
-- **Margin Variance** = Actual Margin – Quoted Margin
+### 💡 Why Margins Erode
+- Automated root cause analysis
+- Quoting issues detection
+- Scope creep quantification
+- Write-off identification
+- Action items generation
+
+### 🔍 Job Diagnosis Tool
+- Single-job deep dive
+- Issue identification
+- Root cause analysis
+- Specific recommendations
+
+### 📋 Reconciliation
+- Data validation totals
+- Filter summary
+- Complete metric definitions
+
+---
+
+## Data Requirements
+
+### Required Columns
+
+**Job Level:**
+- `[Job] Job No.`, `[Job] Name`, `[Job] Client`
+- `[Job] Start Date`, `[Job] Status`
+- `Department`, `Product`
+
+**Task Level:**
+- `[Job Task] Name`, `Task Category`
+- `[Job Task] Quoted Time`, `[Job Task] Quoted Amount`
+- `[Job Task] Actual Time (totalled)`
+- `[Job Task] Invoiced Time`, `[Job Task] Invoiced Amount`
+- `[Task] Base Rate`, `[Task] Billable Rate`
 
 ---
 
 ## Metric Definitions
 
+### Revenue Metrics
+| Metric | Formula | Description |
+|--------|---------|-------------|
+| Quoted Amount | Direct | Client quote = expected revenue |
+| Invoiced Amount | Direct | Actual revenue billed |
+| Write-Off | Quoted - Invoiced | Revenue not captured |
+
+### Cost Metrics
+| Metric | Formula | Description |
+|--------|---------|-------------|
+| Base Cost | Actual Hours × Cost Rate/Hr | Labor cost |
+| Cost Rate/Hr | `[Task] Base Rate` | Internal cost per hour |
+
 ### Margin Metrics
-
 | Metric | Formula | Description |
 |--------|---------|-------------|
-| **Quoted Margin** | `Quoted Amount - Base Cost` | Expected margin from quote |
-| **Actual Margin** | `Billable Value - Base Cost` | Realized margin |
-| **Margin Variance** | `Actual Margin - Quoted Margin` | Difference from expectations |
-| **Quoted Margin %** | `(Quoted Margin / Quoted Amount) × 100` | Margin % if quoted was billed |
-| **Actual Margin %** | `(Actual Margin / Billable Value) × 100` | Realized margin percentage |
+| Quoted Margin | Quoted Amount - Base Cost | Expected margin |
+| Actual Margin | Invoiced Amount - Base Cost | Realized margin |
+| Quoted Margin % | Quoted Margin / Quoted Amount × 100 | Expected margin rate |
+| Actual Margin % | Actual Margin / Invoiced Amount × 100 | Realized margin rate |
+| Margin Erosion | Quoted Margin % - Actual Margin % | Margin deterioration |
 
-### Rate Metrics (per hour)
-
+### Realization Metrics
 | Metric | Formula | Description |
 |--------|---------|-------------|
-| **Quoted Rate/Hr** | `Quoted Amount / Quoted Hours` | Implied hourly rate from quote |
-| **Billable Rate/Hr** | `[Task] Billable Rate` | Standard client billing rate |
-| **Cost Rate/Hr** | `[Task] Base Rate` | Internal T&M cost per hour |
+| Realization % | Invoiced / Quoted × 100 | Revenue capture rate |
+| Write-Off % | Write-Off / Quoted × 100 | Revenue leakage rate |
 
-### Value Metrics
-
-| Metric | Formula | Source |
-|--------|---------|--------|
-| **Quoted Hours** | Direct | `[Job Task] Quoted Time` |
-| **Quoted Amount** | Direct | `[Job Task] Quoted Amount` |
-| **Actual Hours** | Direct | `[Job Task] Actual Time (totalled)` |
-| **Billable Value** | Calculated | `Actual Hours × Billable Rate/Hr` |
-| **Base Cost** | Calculated | `Actual Hours × Cost Rate/Hr` |
-
-### Performance Metrics
-
+### Rate Metrics (Internal Analysis)
 | Metric | Formula | Description |
 |--------|---------|-------------|
-| **Revenue Realization** | `(Billable Value / Quoted Amount) × 100` | % of quoted revenue realized |
-| **Hours Variance** | `Actual Hours - Quoted Hours` | Hours over/under quote |
-| **Margin Erosion** | `Quoted Margin % - Actual Margin %` | Margin lost vs expectation |
+| Quoted Rate/Hr | Quoted Amount / Quoted Hours | Implied rate from quote |
+| Actual Rate/Hr | Invoiced Amount / Actual Hours | Realized rate |
+| Billable Rate/Hr | `[Task] Billable Rate` | Internal standard rate |
+| Rate Gap | Quoted Rate/Hr - Billable Rate/Hr | Quoting vs standard |
 
 ---
 
-## Dashboard Tabs
+## Common Use Cases
 
-### 📊 Executive Summary
-- Key headlines and alerts
-- Revenue & margin KPIs
-- Rate analysis
-- Margin bridge visualization (Quoted → Actual)
+### "Why did Job X lose money?"
+1. Go to **Job Diagnosis** tab
+2. Select the job
+3. Review the diagnosis:
+   - Was quote too low? (check Quoted Margin %)
+   - Scope creep? (check unquoted tasks)
+   - Hour overrun? (check Hours Variance)
+   - Write-off? (check Realization %)
+   - Wrong resourcing? (check Cost Rate vs Billable Rate)
 
-### 📈 Monthly Trends
-- Selectable metric trends
-- Quoted vs Billable vs Cost comparison
-- Margin evolution (Quoted vs Actual)
-- Department breakdown over time
+### "Which department is dragging margins?"
+1. Go to **Drill-Down** tab
+2. Review Department Performance chart
+3. Sort by Actual Margin % or Realization %
+4. Drill into problem departments
 
-### 🏢 Hierarchy Drill-Down
-- Level 1: Department performance
-- Level 2: Product analysis
-- Level 3: Job profitability
-- Level 4: Task breakdown
+### "Are we quoting correctly?"
+1. Go to **Why Margins Erode** tab
+2. Review "Was the Quote Too Low?" section
+3. Check rate gap analysis
+4. Identify products/jobs with consistent underquoting
 
-### 💡 Insights & Narratives
-- Automated margin driver analysis
-- Quoting accuracy insights
-- Trend signals
-- Action items
-- Executive narrative summary
-
-### 🔍 Reconciliation
-- Filter summary
-- Validation totals
-- Metric definitions reference
-
----
-
-## Hierarchy Structure
-
-```
-Department
-└── Product
-    └── Job
-        └── Task
-```
-
-All metrics aggregate from Task → Job → Product → Department level.
-
----
-
-## Time-Based Analysis
-
-### Fiscal Year Logic (Australian)
-- **FY26** = July 1, 2025 → June 30, 2026
-- Jobs assigned based on `[Job] Start Date`
-- Month ≥ 7 → next year's FY
-
-### Monthly Aggregation
-- Calendar month grouping (e.g., "Jul 2025")
-- FY month ordering (1=Jul, 12=Jun)
-- Trend analysis across selected FY
-
----
-
-## Filtering Options
-
-| Filter | Default | Description |
-|--------|---------|-------------|
-| **Fiscal Year** | Latest | Required for trend analysis |
-| **Department** | All | Filter by business unit |
-| **Exclude SG Allocation** | ✔ ON | Removes internal allocation entries |
-| **Billable Tasks Only** | ✔ ON | Keeps tasks where Base Rate > 0 AND Billable Rate > 0 |
-
----
-
-## Narrative Insights Generated
-
-### Headline Alerts
-- Revenue realization gaps
-- Overall margin status
-- Loss-making job counts
-
-### Margin Drivers
-- Worst/best performing departments
-- Impact quantification
-
-### Quoting Accuracy
-- Underquoted jobs identification
-- Scope creep (unquoted work) detection
-- Excess hours analysis
-
-### Action Items
-- Top loss-making jobs to review
-- Specific variance explanations
-
----
-
-## Required Data Columns
-
-### Job-Level
-- `[Job] Job No.`, `[Job] Name`, `[Job] Client`
-- `[Job] Start Date` (for FY and monthly grouping)
-- `[Job] Status`, `[Job] Budget`
-
-### Hierarchy
-- `Department`, `Product`
-
-### Task-Level
-- `[Job Task] Name`, `Task Category`
-- `[Job Task] Quoted Time`, `[Job Task] Quoted Amount`
-- `[Job Task] Actual Time (totalled)`
-- `[Job Task] Invoiced Time`, `[Job Task] Invoiced Amount`
-
-### Rates
-- `[Task] Base Rate` (Cost Rate/Hr)
-- `[Task] Billable Rate` (Billable Rate/Hr)
+### "How much scope creep do we have?"
+1. Go to **Why Margins Erode** tab
+2. Review "Scope Creep" panel
+3. See total unquoted cost
+4. Drill into specific tasks
 
 ---
 
@@ -203,35 +241,21 @@ streamlit run app.py
 
 ---
 
-## Analysis Workflow
-
-1. **Select FY** — Choose fiscal year for trend analysis
-2. **Review Headlines** — Check key alerts in Executive Summary
-3. **Analyze Trends** — Explore monthly patterns
-4. **Identify Problems** — Use hierarchy drill-down
-5. **Read Insights** — Review automated narratives
-6. **Take Action** — Follow recommended action items
-7. **Verify Data** — Check reconciliation totals
-
----
-
-## Common Issues Detected
-
-| Issue | Signal | Root Cause |
-|-------|--------|------------|
-| **Scope Creep** | Unquoted tasks with actual hours | Work not in original quote |
-| **Underestimation** | Actual Hrs >> Quoted Hrs | Poor estimation |
-| **Margin Erosion** | Actual Margin << Quoted Margin | Revenue leakage |
-| **Revenue Gap** | Realization < 100% | Discounts or billing gaps |
-| **Rate Mismatch** | Billable Rate ≠ Quoted Rate/Hr | Pricing inconsistency |
-
----
-
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `app.py` | Streamlit dashboard with trend analysis |
-| `analysis.py` | Data processing, monthly aggregations, insights |
-| `requirements.txt` | Python dependencies |
+| `app.py` | Streamlit dashboard |
+| `analysis.py` | Data processing, metrics, insights |
+| `requirements.txt` | Dependencies |
 | `README.md` | Documentation |
+
+---
+
+## Key Principles
+
+1. **Quoted Amount = Revenue** — Never use Billable Value as revenue proxy
+2. **Realization = Invoiced ÷ Quoted** — The real measure of revenue capture
+3. **Diagnose, don't just report** — Explain WHY margins are good or bad
+4. **Actionable insights** — Every metric should lead to a decision
+
