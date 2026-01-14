@@ -132,13 +132,14 @@ def st_df(df, **kwargs):
         st.dataframe(df, width='stretch', **kwargs)
     except TypeError:
         # Backwards compatible
+        pass
 
 def st_chart(chart, **kwargs):
     """Altair chart helper (width compat)."""
     try:
         st.altair_chart(chart, width='stretch', **kwargs)
     except TypeError:
-
+        pass
 # =============================================================================
 # SIDEBAR
 # =============================================================================
