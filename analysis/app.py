@@ -1289,8 +1289,16 @@ def main():
                     )
                     st.session_state["custom_items"] = custom_items
                     
-                    valid_custom = custom_items.dropna(subset=["Proposed_Hours", "Billable_Rate_Hr", "Cost_Rate_Hr"])
-                    valid_custom = valid_custom[valid_custom["Proposed_Hours"] > 0]
+                    custom_clean = custom_items.copy()
+                    for col in ["Proposed_Hours", "Billable_Rate_Hr", "Cost_Rate_Hr"]:
+                        custom_clean[col] = pd.to_numeric(custom_clean[col], errors="coerce")
+                    custom_clean["Task_Name"] = custom_clean["Task_Name"].fillna("").astype(str).str.strip()
+                    valid_custom = custom_clean.dropna(
+                        subset=["Proposed_Hours", "Billable_Rate_Hr", "Cost_Rate_Hr"]
+                    )
+                    valid_custom = valid_custom[
+                        (valid_custom["Proposed_Hours"] > 0) & (valid_custom["Task_Name"] != "")
+                    ]
                     
                     edited["Revenue"] = edited["Proposed_Hours"] * edited["Billable_Rate_Hr"]
                     edited["Cost"] = edited["Proposed_Hours"] * edited["Cost_Rate_Hr"]
