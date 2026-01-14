@@ -226,6 +226,25 @@ def callout_list(title, items):
     )
 
 
+def metric_explainer(title, keys):
+    fallback = {
+        "Job_Count": {
+            "name": "Job Count",
+            "formula": "Count of distinct jobs",
+            "desc": "Number of jobs included in the aggregation",
+        }
+    }
+    lines = []
+    for key in keys:
+        defn = METRIC_DEFINITIONS.get(key, fallback.get(key))
+        if not defn:
+            continue
+        lines.append(f"**{defn['name']}** — `{defn['formula']}` — {defn['desc']}")
+    if lines:
+        with st.expander(title):
+            st.markdown("\n\n".join(lines))
+
+
 def apply_chart_theme():
     def theme():
         return {
@@ -620,6 +639,14 @@ def main():
                     "Hours Variance % compares actual to quoted hours",
                 ]
             )
+            metric_explainer(
+                "Monthly metrics explained",
+                [
+                    "Quoted_Amount", "Expected_Quote", "Quote_Gap", "Quote_Gap_Pct",
+                    "Margin", "Margin_Pct", "Hours_Variance_Pct", "Effective_Rate_Hr",
+                    "Billable_Rate_Hr", "Cost_Rate_Hr", "Job_Count",
+                ],
+            )
             # Metric selector
             trend_metric = st.selectbox(
                 "Select Metric",
@@ -825,6 +852,14 @@ def main():
                 "Use Quote Gap to spot pricing issues",
             ]
         )
+        metric_explainer(
+            "Drill-down metrics explained",
+            [
+                "Margin", "Margin_Pct", "Quote_Gap", "Quote_Gap_Pct",
+                "Effective_Rate_Hr", "Hours_Variance_Pct", "Job_Count",
+            ],
+        )
+        dept_select = alt.selection_point(fields=["Department"], on="click", clear="dblclick", empty="all")
         
         if len(dept_summary) > 0:
             st.subheader("🏢 Department Scoreboard")
@@ -857,19 +892,23 @@ def main():
                     "Lower margin + negative quote gap indicates urgent pricing fixes",
                 ]
             )
-        
+
         # Department
         st.subheader("Level 1: Department Performance")
         if len(dept_summary) > 0:
             dept_chart = alt.Chart(dept_summary).mark_bar(size=20, cornerRadiusEnd=3).encode(
                 y=alt.Y("Department:N", sort="-x"),
                 x=alt.X("Margin_Pct:Q", title="Margin %", axis=alt.Axis(format="~s")),
-                color=alt.condition(alt.datum.Margin_Pct < 20, alt.value("#e74c3c"), alt.value("#2ecc71")),
+                color=alt.condition(
+                    dept_select,
+                    alt.value("#2e86ab"),
+                    alt.condition(alt.datum.Margin_Pct < 20, alt.value("#e74c3c"), alt.value("#2ecc71"))
+                ),
                 tooltip=["Department",
                          alt.Tooltip("Margin_Pct:Q", format=".1f", title="Margin %"),
                          alt.Tooltip("Margin:Q", format="$,.0f", title="Margin $"),
                          alt.Tooltip("Quote_Gap:Q", format="$,.0f", title="Quote Gap")]
-            ).properties(height=max(200, len(dept_summary) * 40))
+            ).add_params(dept_select).properties(height=max(200, len(dept_summary) * 40))
             
             rule = alt.Chart(pd.DataFrame({"x": [35]})).mark_rule(color="orange", strokeDash=[3,3]).encode(x="x:Q")
             st.altair_chart(dept_chart + rule, use_container_width=True)
@@ -878,6 +917,7 @@ def main():
                 [
                     "Bars show Margin %",
                     "Orange line is the 35% target benchmark",
+                    "Click a department bar to filter charts below (double-click to reset)",
                 ]
             )
             
@@ -899,20 +939,21 @@ def main():
         sel_dept_drill = st.selectbox("Filter by Department", ["All"] + sorted(dept_summary["Department"].unique().tolist()), key="d1")
         prod_f = product_summary if sel_dept_drill == "All" else product_summary[product_summary["Department"] == sel_dept_drill]
         
-        if len(prod_f) > 0:
-            prod_chart = alt.Chart(prod_f.head(15)).mark_bar(size=16, cornerRadiusEnd=3).encode(
+        if len(product_summary) > 0:
+            prod_base = alt.Chart(product_summary).transform_filter(dept_select)
+            prod_chart = prod_base.mark_bar(size=16, cornerRadiusEnd=3).encode(
                 y=alt.Y("Product:N", sort="-x"),
                 x=alt.X("Margin_Pct:Q", title="Margin %", axis=alt.Axis(format="~s")),
                 color=alt.condition(alt.datum.Margin_Pct < 20, alt.value("#e74c3c"), alt.value("#2ecc71")),
                 tooltip=["Product", "Department",
                          alt.Tooltip("Margin_Pct:Q", format=".1f"),
                          alt.Tooltip("Quote_Gap:Q", format="$,.0f")]
-            ).properties(height=max(200, min(len(prod_f), 15) * 30))
+            ).properties(height=320)
             st.altair_chart(prod_chart, use_container_width=True)
             callout_list(
                 "Product bar chart",
                 [
-                    "Top 15 products by margin %",
+                    "Filtered by selected department",
                     "Use Quote Gap in tooltips to validate pricing",
                 ]
             )
@@ -943,6 +984,31 @@ def main():
             jobs_f = jobs_f[jobs_f["Is_Overrun"]]
         
         jobs_disp = jobs_f.sort_values(sort_by, ascending=sort_by in ["Margin", "Quote_Gap"]).head(25)
+        
+        if len(job_summary) > 0:
+            st.subheader("Job Performance (Interactive)")
+            job_chart = alt.Chart(job_summary).transform_filter(dept_select).mark_circle(size=110).encode(
+                x=alt.X("Quote_Gap_Pct:Q", title="Quote Gap %"),
+                y=alt.Y("Margin_Pct:Q", title="Margin %"),
+                color=alt.condition(alt.datum.Margin_Pct < 20, alt.value("#e4572e"), alt.value("#2ecc71")),
+                tooltip=[
+                    "Job_Name",
+                    "Department",
+                    "Product",
+                    alt.Tooltip("Margin_Pct:Q", format=".1f", title="Margin %"),
+                    alt.Tooltip("Quote_Gap_Pct:Q", format=".1f", title="Quote Gap %"),
+                    alt.Tooltip("Hours_Variance_Pct:Q", format=".0f", title="Hours Var %"),
+                    alt.Tooltip("Effective_Rate_Hr:Q", format="$,.0f", title="Effective Rate/Hr"),
+                ],
+            ).properties(height=360)
+            st.altair_chart(job_chart, use_container_width=True)
+            callout_list(
+                "Job bubble chart",
+                [
+                    "Upper-right = high margin and premium pricing",
+                    "Lower-left = discounted and low margin (urgent review)",
+                ]
+            )
         
         if len(jobs_disp) > 0:
             cols = ["Job_No", "Job_Name", "Client", "Month",
