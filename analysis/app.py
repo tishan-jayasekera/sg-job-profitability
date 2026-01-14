@@ -418,10 +418,6 @@ def main():
     billable_only = st.sidebar.checkbox("Billable tasks only", value=True)
     
     # Apply filters
-    df_filtered, recon = apply_filters(
-        df_parsed, exclude_sg_allocation=exclude_sg, billable_only=billable_only,
-        fiscal_year=selected_fy, department=dept_filter
-    )
     df_filtered, recon = filter_data(
         df_parsed,
         exclude_sg_allocation=exclude_sg,

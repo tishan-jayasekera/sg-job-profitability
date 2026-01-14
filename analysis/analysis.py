@@ -233,9 +233,15 @@ def apply_filters(
     df_f = df.copy()
     
     if exclude_sg_allocation:
-        mask = df_f["[Job Task] Name"] == "Social Garden Invoice Allocation"
-        recon["excluded_sg_allocation"] = mask.sum()
-        df_f = df_f[~mask]
+        if "[Job Task] Name" in df_f.columns:
+            task_name = df_f["[Job Task] Name"].fillna("").astype(str).str.strip()
+            mask = (
+                task_name.str.contains("social garden invoice allocation", case=False) |
+                task_name.str.contains("social garden allocation", case=False) |
+                task_name.str.contains("sg allocation", case=False)
+            )
+            recon["excluded_sg_allocation"] = mask.sum()
+            df_f = df_f[~mask]
     
     if billable_only:
         mask = (df_f["Cost_Rate_Hr"] > 0) & (df_f["Billable_Rate_Hr"] > 0)
