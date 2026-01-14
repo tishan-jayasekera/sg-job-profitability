@@ -307,6 +307,27 @@ def compute_summaries(df_filtered):
     )
 
 
+@st.cache_data(show_spinner=False)
+def compute_builder_task_stats(df_filtered_product):
+    task_summary = compute_task_summary(df_filtered_product)
+    if len(task_summary) == 0:
+        return pd.DataFrame()
+    total_jobs = task_summary["Job_No"].nunique()
+    stats = task_summary.groupby("Task_Name").agg(
+        Jobs_With_Task=("Job_No", "nunique"),
+        Avg_Quoted_Hours=("Quoted_Hours", "mean"),
+        Avg_Actual_Hours=("Actual_Hours", "mean"),
+        Billable_Rate_Hr=("Billable_Rate_Hr", "mean"),
+        Cost_Rate_Hr=("Cost_Rate_Hr", "mean"),
+        Total_Actual_Hours=("Actual_Hours", "sum"),
+    ).reset_index()
+    stats["Frequency_Pct"] = np.where(
+        total_jobs > 0, (stats["Jobs_With_Task"] / total_jobs) * 100, 0
+    )
+    stats = stats.sort_values(["Frequency_Pct", "Avg_Actual_Hours"], ascending=False)
+    return stats
+
+
 # =============================================================================
 # MAIN APP
 # =============================================================================
@@ -434,9 +455,9 @@ def main():
     # =========================================================================
     # TABS
     # =========================================================================
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📊 Executive Summary", "📈 Monthly Trends", "🏢 Drill-Down",
-        "💡 Insights", "🔍 Job Diagnosis", "📋 Reconciliation"
+        "💡 Insights", "🔍 Job Diagnosis", "📋 Reconciliation", "🧠 Smart Quote Builder"
     ])
     
     # =========================================================================
@@ -1134,6 +1155,179 @@ def main():
                 st.markdown(f"- Formula: `{defn['formula']}`")
                 st.markdown(f"- {defn['desc']}")
                 st.markdown("---")
+    
+    # =========================================================================
+    # TAB 7: SMART QUOTE BUILDER
+    # =========================================================================
+    with tab7:
+        st.header("🧠 Smart Quote Builder")
+        callout_list(
+            "How this works",
+            [
+                "Select a department, fiscal year, and product to anchor historical tasks",
+                "Pick tasks, adjust proposed hours, and add custom lines",
+                "Quote uses standard billable rates for pricing",
+            ]
+        )
+        
+        c1, c2, c3 = st.columns(3)
+        builder_dept = c1.selectbox("Department", ["All Departments"] + dept_list, key="b_dept")
+        builder_dept_filter = None if builder_dept == "All Departments" else builder_dept
+        builder_fy = c2.selectbox(
+            "Reference Fiscal Year", fy_list, index=len(fy_list) - 1, key="b_fy",
+            format_func=lambda x: f"FY{str(x)[-2:]}"
+        )
+        
+        base_filtered, _ = filter_data(
+            df_parsed,
+            exclude_sg_allocation=exclude_sg,
+            billable_only=billable_only,
+            fiscal_year=builder_fy,
+            department=builder_dept_filter
+        )
+        products = sorted(base_filtered["Product"].dropna().unique().tolist())
+        builder_product = c3.selectbox("Product", products if products else ["None"], key="b_prod")
+        
+        if builder_product == "None" or len(base_filtered) == 0:
+            st.info("No data available for the selected context.")
+        else:
+            product_filtered = base_filtered[base_filtered["Product"] == builder_product]
+            task_stats = compute_builder_task_stats(product_filtered)
+            
+            if len(task_stats) == 0:
+                st.warning("No tasks found for this product and fiscal year.")
+            else:
+                st.subheader("Historical Task Library")
+                callout_list(
+                    "Historical metrics",
+                    [
+                        "Frequency = % of jobs where the task appears",
+                        "Avg Quoted/Actual Hrs are per-job averages",
+                        "Rates are historical averages for the task",
+                    ]
+                )
+                
+                st.dataframe(
+                    task_stats[[
+                        "Task_Name", "Frequency_Pct", "Avg_Quoted_Hours", "Avg_Actual_Hours",
+                        "Billable_Rate_Hr", "Cost_Rate_Hr"
+                    ]].style.format({
+                        "Frequency_Pct": "{:.0f}%",
+                        "Avg_Quoted_Hours": "{:,.1f}",
+                        "Avg_Actual_Hours": "{:,.1f}",
+                        "Billable_Rate_Hr": "${:,.0f}",
+                        "Cost_Rate_Hr": "${:,.0f}",
+                    }),
+                    use_container_width=True,
+                    height=320
+                )
+                
+                default_tasks = task_stats[task_stats["Frequency_Pct"] >= 75]["Task_Name"].tolist()
+                selected_tasks = st.multiselect(
+                    "Select tasks to include",
+                    task_stats["Task_Name"].tolist(),
+                    default=default_tasks
+                )
+                
+                if selected_tasks:
+                    builder_df = task_stats[task_stats["Task_Name"].isin(selected_tasks)].copy()
+                    builder_df["Proposed_Hours"] = builder_df["Avg_Actual_Hours"].round(1)
+                    builder_df = builder_df[[
+                        "Task_Name", "Frequency_Pct", "Avg_Quoted_Hours", "Avg_Actual_Hours",
+                        "Proposed_Hours", "Billable_Rate_Hr", "Cost_Rate_Hr", "Total_Actual_Hours"
+                    ]]
+                    
+                    st.subheader("Quote Builder")
+                    callout_list(
+                        "Input guidance",
+                        [
+                            "Proposed Hours default to Avg Actual Hours for realism",
+                            "Adjust hours to reflect scope differences for this quote",
+                        ]
+                    )
+                    
+                    edited = st.data_editor(
+                        builder_df,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "Task_Name": st.column_config.TextColumn("Task"),
+                            "Frequency_Pct": st.column_config.NumberColumn("Frequency %", format="%.0f"),
+                            "Avg_Quoted_Hours": st.column_config.NumberColumn("Avg Quoted Hrs", format="%.1f"),
+                            "Avg_Actual_Hours": st.column_config.NumberColumn("Avg Actual Hrs", format="%.1f"),
+                            "Proposed_Hours": st.column_config.NumberColumn("Proposed Hrs", min_value=0.0, step=0.5),
+                            "Billable_Rate_Hr": st.column_config.NumberColumn("Billable Rate/Hr", format="$%.0f"),
+                            "Cost_Rate_Hr": st.column_config.NumberColumn("Cost Rate/Hr", format="$%.0f"),
+                        },
+                        disabled=[
+                            "Task_Name", "Frequency_Pct", "Avg_Quoted_Hours",
+                            "Avg_Actual_Hours", "Billable_Rate_Hr", "Cost_Rate_Hr", "Total_Actual_Hours"
+                        ],
+                    )
+                    
+                    st.subheader("Custom Line Items")
+                    callout_list(
+                        "Custom entries",
+                        [
+                            "Add unique tasks not in the history",
+                            "Provide hours and rates for pricing",
+                        ]
+                    )
+                    
+                    if "custom_items" not in st.session_state:
+                        st.session_state["custom_items"] = pd.DataFrame(
+                            columns=["Task_Name", "Proposed_Hours", "Billable_Rate_Hr", "Cost_Rate_Hr"]
+                        )
+                    
+                    custom_items = st.data_editor(
+                        st.session_state["custom_items"],
+                        use_container_width=True,
+                        num_rows="dynamic",
+                        hide_index=True,
+                        column_config={
+                            "Task_Name": st.column_config.TextColumn("Task"),
+                            "Proposed_Hours": st.column_config.NumberColumn("Proposed Hrs", min_value=0.0, step=0.5),
+                            "Billable_Rate_Hr": st.column_config.NumberColumn("Billable Rate/Hr", min_value=0.0, format="$%.0f"),
+                            "Cost_Rate_Hr": st.column_config.NumberColumn("Cost Rate/Hr", min_value=0.0, format="$%.0f"),
+                        },
+                    )
+                    st.session_state["custom_items"] = custom_items
+                    
+                    valid_custom = custom_items.dropna(subset=["Proposed_Hours", "Billable_Rate_Hr", "Cost_Rate_Hr"])
+                    valid_custom = valid_custom[valid_custom["Proposed_Hours"] > 0]
+                    
+                    edited["Revenue"] = edited["Proposed_Hours"] * edited["Billable_Rate_Hr"]
+                    edited["Cost"] = edited["Proposed_Hours"] * edited["Cost_Rate_Hr"]
+                    
+                    custom_revenue = (valid_custom["Proposed_Hours"] * valid_custom["Billable_Rate_Hr"]).sum()
+                    custom_cost = (valid_custom["Proposed_Hours"] * valid_custom["Cost_Rate_Hr"]).sum()
+                    
+                    total_revenue = edited["Revenue"].sum() + custom_revenue
+                    total_cost = edited["Cost"].sum() + custom_cost
+                    margin = total_revenue - total_cost
+                    margin_pct = (margin / total_revenue * 100) if total_revenue > 0 else 0
+                    
+                    total_proposed_hours = edited["Proposed_Hours"].sum() + valid_custom["Proposed_Hours"].sum()
+                    total_hist_actual = edited["Total_Actual_Hours"].sum()
+                    
+                    st.subheader("Final Recommendation")
+                    col_a, col_b, col_c = st.columns(3)
+                    col_a.metric("Total Recommended Quote", fmt_currency(total_revenue))
+                    
+                    if margin_pct >= 35:
+                        margin_label = f"🟢 {margin_pct:.1f}%"
+                    elif margin_pct < 20:
+                        margin_label = f"🔴 {margin_pct:.1f}%"
+                    else:
+                        margin_label = f"🟡 {margin_pct:.1f}%"
+                    col_b.metric("Projected Margin %", margin_label)
+                    col_c.metric("Total Proposed Hours", f"{total_proposed_hours:,.1f}")
+                    
+                    if total_hist_actual > 0 and total_proposed_hours < total_hist_actual * 0.8:
+                        st.warning(
+                            "Proposed hours are >20% below historical actual hours for these tasks. "
+                            "Consider increasing scope or validating assumptions."
+                        )
     
     # Footer
     st.markdown("---")
