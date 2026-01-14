@@ -630,6 +630,7 @@ def main():
     if len(monthly_summary) == 0:
       st.warning("No monthly data available.")
     else:
+      last_month = monthly_summary["Month"].iloc[-1]
       callout_list(
         "Monthly trend explainer",
         [
@@ -660,13 +661,28 @@ def main():
       )
       
       # Main trend
-      st.subheader(f" {trend_metric.replace('_', ' ')} by Month")
+      st.subheader(f"{trend_metric.replace('_', ' ')} by Month")
+      format_map = {
+        "Margin_Pct": ".1f",
+        "Quote_Gap_Pct": ".1f",
+        "Hours_Variance_Pct": ".1f",
+        "Quoted_Amount": "$,.0f",
+        "Effective_Rate_Hr": "$,.0f",
+      }
+      metric_format = format_map.get(trend_metric, ",.1f")
       trend_chart = alt.Chart(monthly_summary).mark_line(point=alt.OverlayMarkDef(size=65), strokeWidth=3).encode(
         x=alt.X("Month:N", sort=list(monthly_summary["Month"]), axis=alt.Axis(labelAngle=-45)),
-        y=alt.Y(f"{trend_metric}:Q", axis=alt.Axis(format="~s")),
+        y=alt.Y(f"{trend_metric}:Q", axis=alt.Axis(format=metric_format)),
         color=alt.value("#2e86ab"),
-        tooltip=["Month", alt.Tooltip(f"{trend_metric}:Q", format=",.1f")]
+        tooltip=["Month", alt.Tooltip(f"{trend_metric}:Q", format=metric_format)]
       ).properties(height=350)
+      trend_label = alt.Chart(monthly_summary).transform_filter(
+        alt.datum.Month == last_month
+      ).mark_text(align="left", dx=8, dy=-6, fontSize=12, fontWeight="bold").encode(
+        x=alt.X("Month:N", sort=list(monthly_summary["Month"])),
+        y=alt.Y(f"{trend_metric}:Q"),
+        text=alt.Text(f"{trend_metric}:Q", format=metric_format)
+      )
       
       # Reference lines
       if trend_metric == "Margin_Pct":
@@ -676,7 +692,7 @@ def main():
         rule = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(color="gray", strokeDash=[5,5]).encode(y="y:Q")
         trend_chart = trend_chart + rule
       
-      st.altair_chart(trend_chart, width='stretch')
+      st.altair_chart(trend_chart + trend_label, width='stretch')
       callout_list(
         "Chart guide",
         [
@@ -704,7 +720,7 @@ def main():
         "Job_Count": "# Jobs",
       }
       health_melt["Metric"] = health_melt["Metric"].map(metric_labels)
-      health_chart = alt.Chart(health_melt).mark_line(point=alt.OverlayMarkDef(size=40)).encode(
+      health_chart = alt.Chart(health_melt).mark_line(point=alt.OverlayMarkDef(size=40), strokeWidth=2.5).encode(
         x=alt.X("Month:N", sort=list(monthly_summary["Month"]), axis=alt.Axis(labelAngle=-45)),
         y=alt.Y("Value:Q", axis=alt.Axis(title=None)),
         color=alt.Color("Metric:N", scale=alt.Scale(
@@ -712,7 +728,17 @@ def main():
         )),
         tooltip=["Month", "Metric", alt.Tooltip("Value:Q", format=",.1f")]
       ).properties(height=320)
-      st.altair_chart(health_chart, width='stretch')
+      health_label = alt.Chart(health_melt).transform_filter(
+        alt.datum.Month == last_month
+      ).mark_text(align="left", dx=6, dy=-5, fontSize=11).encode(
+        x=alt.X("Month:N", sort=list(monthly_summary["Month"])),
+        y=alt.Y("Value:Q"),
+        color=alt.Color("Metric:N", scale=alt.Scale(
+          range=["#2ecc71", "#e4572e", "#2e86ab", "#6b705c"]
+        )),
+        text=alt.Text("Value:Q", format=",.1f")
+      )
+      st.altair_chart(health_chart + health_label, width='stretch')
       callout_list(
         "Health panel",
         [
@@ -772,7 +798,17 @@ def main():
         )),
         tooltip=["Month", "Type", alt.Tooltip("Rate:Q", format="$,.0f")]
       ).properties(height=320)
-      st.altair_chart(rate_chart, width='stretch')
+      rate_label = alt.Chart(rate_data).transform_filter(
+        alt.datum.Month == last_month
+      ).mark_text(align="left", dx=6, dy=-5, fontSize=11).encode(
+        x=alt.X("Month:N", sort=list(monthly_summary["Month"])),
+        y=alt.Y("Rate:Q"),
+        color=alt.Color("Type:N", scale=alt.Scale(
+          range=["#2e86ab", "#2ecc71", "#6c757d", "#e4572e"]
+        )),
+        text=alt.Text("Rate:Q", format="$,.0f")
+      )
+      st.altair_chart(rate_chart + rate_label, width='stretch')
       callout_list(
         "Rate story",
         [
@@ -783,12 +819,19 @@ def main():
 
       # Margin trend
       st.subheader("Margin $ and %")
-      margin_line = alt.Chart(monthly_summary).mark_line(point=alt.OverlayMarkDef(size=55), strokeWidth=2, color="#2ecc71").encode(
+      margin_line = alt.Chart(monthly_summary).mark_line(point=alt.OverlayMarkDef(size=55), strokeWidth=2.5, color="#2ecc71").encode(
         x=alt.X("Month:N", sort=list(monthly_summary["Month"]), axis=alt.Axis(labelAngle=-45)),
         y=alt.Y("Margin_Pct:Q", title="Margin %"),
         tooltip=["Month", alt.Tooltip("Margin_Pct:Q", format=".1f"), alt.Tooltip("Margin:Q", format="$,.0f")]
       ).properties(height=300)
-      st.altair_chart(margin_line, width='stretch')
+      margin_label = alt.Chart(monthly_summary).transform_filter(
+        alt.datum.Month == last_month
+      ).mark_text(align="left", dx=8, dy=-6, fontSize=12, fontWeight="bold", color="#2ecc71").encode(
+        x=alt.X("Month:N", sort=list(monthly_summary["Month"])),
+        y=alt.Y("Margin_Pct:Q"),
+        text=alt.Text("Margin_Pct:Q", format=".1f")
+      )
+      st.altair_chart(margin_line + margin_label, width='stretch')
       callout_list(
         "Margin line",
         [
