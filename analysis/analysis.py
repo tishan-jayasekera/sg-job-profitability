@@ -971,4 +971,34 @@ METRIC_DEFINITIONS = {
         "formula": "Quoted Rate/Hr - Billable Rate/Hr", 
         "desc": "Difference between quoted and internal rate. Negative = discounting"
     },
+    "Hours_Variance": {
+        "name": "Hours Variance", 
+        "formula": "Actual Hours - Quoted Hours", 
+        "desc": "Positive values indicate hours overrun"
+    },
+    "Hours_Variance_Pct": {
+        "name": "Hours Variance %", 
+        "formula": "(Hours Variance / Quoted Hours) × 100", 
+        "desc": "Overrun percentage vs quoted hours"
+    },
+    "Is_Overrun": {
+        "name": "Hour Overrun Flag", 
+        "formula": "Hours Variance > 0", 
+        "desc": "True when actual hours exceed quoted hours"
+    },
+    "Is_Loss": {
+        "name": "Loss Flag", 
+        "formula": "Margin < 0", 
+        "desc": "True when the job loses money"
+    },
+    "Overrun_Rate": {
+        "name": "Overrun Rate", 
+        "formula": "Jobs with overruns / Total jobs", 
+        "desc": "Percentage of jobs exceeding quoted hours"
+    },
+    "Loss_Rate": {
+        "name": "Loss Rate", 
+        "formula": "Jobs at loss / Total jobs", 
+        "desc": "Percentage of jobs with negative margin"
+    },
 }

@@ -39,6 +39,116 @@ st.set_page_config(
 )
 
 # =============================================================================
+# THEME / STYLES
+# =============================================================================
+
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+    :root {
+        --bg-1: #f8f4ef;
+        --bg-2: #eef4f7;
+        --ink-1: #1e1a18;
+        --ink-2: #5a534f;
+        --accent-1: #e4572e;
+        --accent-2: #2e86ab;
+        --accent-3: #2ecc71;
+        --card: rgba(255, 255, 255, 0.85);
+        --border: rgba(30, 26, 24, 0.08);
+        --shadow: 0 10px 30px rgba(30, 26, 24, 0.08);
+    }
+    html, body, [class*="css"] {
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        color: var(--ink-1);
+    }
+    .stApp {
+        background: radial-gradient(1100px 600px at 10% -10%, #fff2e8 0%, transparent 60%),
+                    radial-gradient(800px 400px at 90% 10%, #e9f3ff 0%, transparent 60%),
+                    linear-gradient(180deg, var(--bg-1), var(--bg-2));
+    }
+    .block-container {
+        padding-top: 2.5rem;
+        padding-bottom: 3.5rem;
+    }
+    h1, h2, h3, h4 {
+        font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+        letter-spacing: -0.02em;
+    }
+    .hero {
+        padding: 1.4rem 1.8rem;
+        border-radius: 18px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+        margin-bottom: 1.5rem;
+    }
+    .hero-title {
+        font-size: 2.2rem;
+        font-weight: 700;
+        margin-bottom: 0.25rem;
+    }
+    .hero-sub {
+        color: var(--ink-2);
+        font-size: 1rem;
+        margin-bottom: 0.75rem;
+    }
+    .pill {
+        display: inline-block;
+        padding: 0.25rem 0.6rem;
+        border-radius: 999px;
+        background: rgba(46, 134, 171, 0.12);
+        color: #1f5e78;
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-right: 0.4rem;
+    }
+    .callout {
+        padding: 0.85rem 1rem;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+        margin: 0.6rem 0 1rem 0;
+    }
+    .callout-title {
+        font-weight: 700;
+        margin-bottom: 0.2rem;
+        color: var(--accent-2);
+    }
+    .callout-text {
+        color: var(--ink-2);
+        font-size: 0.95rem;
+    }
+    div[data-testid="stMetric"] {
+        background: var(--card);
+        border: 1px solid var(--border);
+        padding: 0.9rem 0.9rem 0.7rem 0.9rem;
+        border-radius: 14px;
+        box-shadow: var(--shadow);
+    }
+    div[data-testid="stMetricLabel"] {
+        font-weight: 600;
+        color: var(--ink-2);
+    }
+    div[data-testid="stMetricValue"] {
+        font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+    }
+    .stTabs [data-baseweb="tab"] {
+        font-weight: 600;
+        letter-spacing: 0.01em;
+    }
+    .stExpander, .stDataFrame {
+        background: var(--card);
+        border-radius: 12px;
+        border: 1px solid var(--border);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# =============================================================================
 # HELPERS
 # =============================================================================
 
@@ -75,13 +185,42 @@ def status_icon(val, good_threshold, bad_threshold, higher_is_better=True):
         return "🔴"
 
 
+def hero(title, subtitle, pills):
+    pill_html = "".join([f"<span class='pill'>{p}</span>" for p in pills])
+    st.markdown(
+        f"""
+        <div class="hero">
+            <div class="hero-title">{title}</div>
+            <div class="hero-sub">{subtitle}</div>
+            <div>{pill_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def callout(title, body):
+    st.markdown(
+        f"""
+        <div class="callout">
+            <div class="callout-title">{title}</div>
+            <div class="callout-text">{body}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
 # =============================================================================
 # MAIN APP
 # =============================================================================
 
 def main():
-    st.title("💰 Job Profitability Analysis")
-    st.markdown("*Revenue = Quoted Amount | Sanity Check = Expected Quote (Quoted Hrs × Billable Rate)*")
+    hero(
+        "Job Profitability Analysis",
+        "Revenue = Quoted Amount | Benchmark = Expected Quote (Quoted Hours × Billable Rate)",
+        ["Pricing Discipline", "Margin Health", "Scope Control"]
+    )
     
     # Key definitions
     with st.expander("📖 Understanding This Dashboard", expanded=False):
@@ -107,6 +246,12 @@ def main():
         - **Negative** (-) = Quoted BELOW internal benchmark (discounting ⚠️)
         """)
     
+    callout(
+        "How to read the dashboard",
+        "Start with Executive Summary for topline health, then use Monthly Trends for seasonality, "
+        "Drill-Down for root causes, and Job Diagnosis for single-job explanations."
+    )
+
     # =========================================================================
     # SIDEBAR
     # =========================================================================
@@ -193,6 +338,11 @@ def main():
     # =========================================================================
     with tab1:
         st.header(f"FY{str(selected_fy)[-2:]} Executive Summary")
+        callout(
+            "Executive Summary explainer",
+            "All KPIs aggregate filtered jobs. Margin and Quote Gap are dollar values; percentages are "
+            "computed against Quoted Amount (margin) or Expected Quote (quote gap)."
+        )
         
         # Headlines
         if insights["headline"]:
@@ -214,6 +364,10 @@ def main():
                   help="Quoted Amount - Base Cost")
         c4.metric("Margin %", fmt_pct(metrics['margin_pct']),
                   help="Target: 35%+")
+        callout(
+            "Metric notes",
+            "Margin % = (Margin / Quoted Amount) × 100. A positive margin means revenue exceeds cost."
+        )
         
         # QUOTING ACCURACY (Sanity Check)
         st.subheader("📊 Quoting Sanity Check: Quoted vs What We Should Have Quoted")
@@ -231,6 +385,11 @@ def main():
         underquoted = metrics['jobs_underquoted']
         c4.metric("Underquoted Jobs", f"{underquoted} / {metrics['total_jobs']}",
                   help="Jobs quoted below internal rates")
+        callout(
+            "How Quote Gap is calculated",
+            "Quote Gap = Quoted Amount - Expected Quote. Expected Quote = Quoted Hours × Billable Rate. "
+            "Negative gap means discounting vs internal benchmark."
+        )
         
         # RATES
         st.subheader("💲 Rate Analysis")
@@ -243,21 +402,33 @@ def main():
                   help="Quoted Amount ÷ Actual Hours (drops if hours overrun)")
         c4.metric("Cost Rate/Hr", fmt_rate(metrics['avg_cost_rate_hr']),
                   help="Internal cost per hour")
+        callout(
+            "Rate explainer",
+            "Quoted Rate/Hr uses quoted hours; Effective Rate/Hr uses actual hours. If hours overrun, "
+            "effective rate falls even when the quoted rate is healthy."
+        )
         
         # PERFORMANCE FLAGS
         st.subheader("⚠️ Performance Flags")
         c1, c2, c3, c4 = st.columns(4)
         loss_icon = status_icon(metrics['loss_rate'], 5, 15, higher_is_better=False)
         c1.metric(f"{loss_icon} Jobs at Loss", f"{metrics['jobs_at_loss']} / {metrics['total_jobs']}",
-                  delta=f"{metrics['loss_rate']:.0f}%", delta_color="inverse")
+                  delta=f"{metrics['loss_rate']:.0f}%", delta_color="inverse",
+                  help="Loss = Margin < 0")
         overrun_icon = status_icon(metrics['overrun_rate'], 30, 50, higher_is_better=False)
         c2.metric(f"{overrun_icon} Hour Overruns", f"{metrics['jobs_over_budget']}",
-                  delta=f"{metrics['overrun_rate']:.0f}%", delta_color="inverse")
+                  delta=f"{metrics['overrun_rate']:.0f}%", delta_color="inverse",
+                  help="Overrun = Actual Hours > Quoted Hours")
         c3.metric("Underquoted Jobs", str(metrics['jobs_underquoted']),
                   help="Jobs quoted below internal benchmark")
         c4.metric("Scope Creep Tasks", str(causes['scope_creep']['count']),
                   delta=fmt_currency(causes['scope_creep']['cost']),
                   help="Unquoted tasks = work not in original quote")
+        callout(
+            "Overrun definition",
+            "Hours Variance = Actual Hours - Quoted Hours. Hours Variance % = (Hours Variance / Quoted Hours) × 100. "
+            "Jobs with Hours Variance > 0 are flagged as overruns."
+        )
         
         st.markdown("---")
         
@@ -285,6 +456,10 @@ def main():
             tooltip=["Step", alt.Tooltip("Amount:Q", format="$,.0f")]
         ).properties(height=300)
         st.altair_chart(bridge_chart, use_container_width=True)
+        callout(
+            "Bridge chart",
+            "Waterfall shows how Revenue minus Base Cost produces Margin. Negative bars represent costs."
+        )
     
     # =========================================================================
     # TAB 2: MONTHLY TRENDS
@@ -295,6 +470,11 @@ def main():
         if len(monthly_summary) == 0:
             st.warning("No monthly data available.")
         else:
+            callout(
+                "Monthly trend explainer",
+                "Values are aggregated by month after filters. Quote Gap % uses Expected Quote as the denominator; "
+                "Hours Variance % compares actual hours to quoted hours."
+            )
             # Metric selector
             trend_metric = st.selectbox(
                 "Select Metric",
@@ -325,6 +505,11 @@ def main():
                 trend_chart = trend_chart + rule
             
             st.altair_chart(trend_chart, use_container_width=True)
+            callout(
+                "Chart guide",
+                "Use the selector to switch KPIs. Margin % target line is 35%; Quote Gap % zero line indicates "
+                "at-benchmark quoting."
+            )
             
             # Quoted vs Expected Quote
             st.subheader("📉 Quoted Amount vs Expected Quote")
@@ -347,6 +532,10 @@ def main():
                 tooltip=["Month", "Type", alt.Tooltip("Amount:Q", format="$,.0f")]
             ).properties(height=300)
             st.altair_chart(compare_chart, use_container_width=True)
+            callout(
+                "Quoted vs Expected",
+                "The gap between bars is the Quote Gap. A larger Expected Quote bar indicates potential underpricing."
+            )
             
             # Margin trend
             st.subheader("📊 Margin $ and %")
@@ -356,6 +545,10 @@ def main():
                 tooltip=["Month", alt.Tooltip("Margin_Pct:Q", format=".1f"), alt.Tooltip("Margin:Q", format="$,.0f")]
             ).properties(height=300)
             st.altair_chart(margin_line, use_container_width=True)
+            callout(
+                "Margin line",
+                "Line shows Margin % by month; hover to see Margin $ and %. Use this to spot low-margin months."
+            )
             
             # Department trends
             if selected_dept == "All Departments" and len(monthly_by_dept) > 0:
@@ -367,6 +560,10 @@ def main():
                     tooltip=["Month", "Department", alt.Tooltip("Margin_Pct:Q", format=".0f")]
                 ).properties(height=350)
                 st.altair_chart(dept_trend, use_container_width=True)
+                callout(
+                    "Department trend",
+                    "Comparative margin trajectories highlight which departments drive overall volatility."
+                )
             
             with st.expander("📋 Monthly Data Table"):
                 st.dataframe(monthly_summary[[
@@ -379,6 +576,10 @@ def main():
     # =========================================================================
     with tab3:
         st.header("🏢 Hierarchical Analysis")
+        callout(
+            "Drill-down explainer",
+            "Each level inherits the filters above. Use margin % to spot weak performers and Quote Gap to spot pricing issues."
+        )
         
         # Department
         st.subheader("Level 1: Department Performance")
@@ -395,6 +596,10 @@ def main():
             
             rule = alt.Chart(pd.DataFrame({"x": [35]})).mark_rule(color="orange", strokeDash=[3,3]).encode(x="x:Q")
             st.altair_chart(dept_chart + rule, use_container_width=True)
+            callout(
+                "Department bar chart",
+                "Bars show Margin %. The orange line is the 35% target benchmark."
+            )
             
             with st.expander("Department Details"):
                 st.dataframe(dept_summary[[
@@ -424,6 +629,10 @@ def main():
                          alt.Tooltip("Quote_Gap:Q", format="$,.0f")]
             ).properties(height=max(200, min(len(prod_f), 15) * 30))
             st.altair_chart(prod_chart, use_container_width=True)
+            callout(
+                "Product bar chart",
+                "Top 15 products by margin %. Use Quote Gap in tooltips to validate pricing."
+            )
         
         st.markdown("---")
         
@@ -462,6 +671,10 @@ def main():
                 "Margin": "${:,.0f}", "Margin_Pct": "{:.1f}%",
                 "Hours_Variance_Pct": "{:+.0f}%"
             }), use_container_width=True, height=400)
+            callout(
+                "Job table",
+                "Hours Variance % above 0 indicates overruns. Quote Gap shows discounting vs benchmark."
+            )
         else:
             st.info("No jobs match filters.")
         
@@ -490,6 +703,11 @@ def main():
                 
                 if len(tasks) > 0:
                     st.markdown("#### Tasks")
+                    callout(
+                        "Task breakdown",
+                        "Quoted Hrs vs Actual Hrs shows overruns; Quote Gap is task-level pricing vs benchmark. "
+                        "Tasks marked as SCOPE CREEP were unquoted."
+                    )
                     task_cols = ["Task_Name", "Quoted_Hours", "Actual_Hours", "Hours_Variance",
                                  "Quoted_Amount", "Expected_Quote", "Quote_Gap", "Base_Cost",
                                  "Margin", "Is_Unquoted"]
@@ -510,6 +728,10 @@ def main():
     # =========================================================================
     with tab4:
         st.header("💡 Profitability Insights")
+        callout(
+            "Insights explainer",
+            "These narratives are generated from the filtered data and highlight pricing, scope, and margin drivers."
+        )
         
         # Quoting Issues
         if insights["quoting_issues"]:
@@ -555,6 +777,10 @@ def main():
                     st.markdown(f"**{str(j['Job_Name'])[:35]}** — ${abs(j['Quote_Gap']):,.0f} below internal rates")
             else:
                 st.success("No significant underquoting!")
+            callout(
+                "Underquoted list",
+                "Jobs here have Quote Gap below -$500 (configurable threshold)."
+            )
         
         with col2:
             st.subheader("📋 Scope Creep (Unquoted Work)")
@@ -565,6 +791,10 @@ def main():
                     st.markdown(f"• **{str(t['Task_Name'])[:30]}** — {t['Actual_Hours']:.0f} hrs, ${t['Base_Cost']:,.0f}")
             else:
                 st.success("No scope creep detected!")
+            callout(
+                "Scope creep list",
+                "Unquoted tasks are tasks with no quoted hours/amount, but actual hours recorded."
+            )
         
         st.markdown("---")
         
@@ -583,6 +813,10 @@ def main():
                     st.caption(f"  Drivers: {', '.join(reasons)}")
         else:
             st.success("No loss-making jobs!")
+        callout(
+            "Loss-making jobs",
+            "Loss = Margin < 0. Drivers are derived from Hours Variance %, Quote Gap, and Effective Rate vs Cost Rate."
+        )
     
     # =========================================================================
     # TAB 5: JOB DIAGNOSIS
@@ -590,6 +824,10 @@ def main():
     with tab5:
         st.header("🔍 Job Diagnosis Tool")
         st.markdown("*Understand why a specific job performed the way it did*")
+        callout(
+            "Diagnosis explainer",
+            "This combines job-level and task-level indicators (overruns, underquoting, scope creep) to suggest root causes."
+        )
         
         # Job selector
         all_jobs = job_summary.apply(
@@ -645,6 +883,11 @@ def main():
             if len(job_tasks) > 0:
                 st.markdown("---")
                 st.subheader("📋 Task Analysis")
+                callout(
+                    "Task flags",
+                    "Unquoted tasks are scope creep. Overrun tasks have Actual Hours > Quoted Hours. "
+                    "Underquoted tasks have Quote Gap below the internal benchmark."
+                )
                 
                 unquoted_tasks = job_tasks[job_tasks['Is_Unquoted']]
                 overrun_tasks = job_tasks[job_tasks['Is_Overrun'] & ~job_tasks['Is_Unquoted']]
@@ -670,6 +913,10 @@ def main():
     # =========================================================================
     with tab6:
         st.header("📋 Data Reconciliation")
+        callout(
+            "Reconciliation explainer",
+            "Shows how many rows were excluded by filters and validates totals across key fields."
+        )
         
         c1, c2, c3 = st.columns(3)
         c1.metric("Raw Records", f"{recon['raw_records']:,}")
