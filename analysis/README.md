@@ -1,14 +1,30 @@
-# Job Profitability Analysis Dashboard
+# Job Profitability Analysis Dashboard — Trend Edition
 
-A structured Streamlit dashboard for analyzing job profitability with **full metric traceability and reconciliation**.
+An interactive Streamlit dashboard for analyzing job profitability with **month-on-month trend analysis**, **narrative insights**, and **full metric traceability**.
 
 ## Key Features
 
-- **Clear Metric Definitions**: Every metric has documented formula and source fields
-- **Calculated Values**: Billable Value and Cost computed from rates × hours (not from data fields)
-- **Reconciliation Panel**: Verify filtered data matches source totals
-- **Configurable Filters**: Toggle inclusion/exclusion of allocation entries and non-billable tasks
-- **Hierarchical Drill-Down**: Department → Product → Job → Task
+### 📈 Month-on-Month Trend Analysis
+- Track margin evolution across the financial year
+- Compare Quoted vs Billable vs Cost trends
+- Visualize department performance over time
+- Revenue realization tracking
+
+### 💡 Narrative-Driven Insights
+- Automated headline generation
+- Margin driver identification
+- Quoting accuracy analysis
+- Actionable recommendations
+
+### 🏢 Hierarchical Drill-Down
+- Department → Product → Job → Task
+- Full rollup of all metrics at each level
+- Variance analysis at every layer
+
+### ⚖️ Quoted vs Actual Reconciliation
+- **Quoted Margin** = Quoted Amount – Base Cost
+- **Actual Margin** = Billable Value – Base Cost
+- **Margin Variance** = Actual Margin – Quoted Margin
 
 ---
 
@@ -18,8 +34,11 @@ A structured Streamlit dashboard for analyzing job profitability with **full met
 
 | Metric | Formula | Description |
 |--------|---------|-------------|
-| **Quoted Margin %** | `(Quoted Amount - Cost) / Quoted Amount × 100` | Margin if we billed the quoted amount |
-| **Billable Margin %** | `(Billable Value - Cost) / Billable Value × 100` | Margin at standard billing rates |
+| **Quoted Margin** | `Quoted Amount - Base Cost` | Expected margin from quote |
+| **Actual Margin** | `Billable Value - Base Cost` | Realized margin |
+| **Margin Variance** | `Actual Margin - Quoted Margin` | Difference from expectations |
+| **Quoted Margin %** | `(Quoted Margin / Quoted Amount) × 100` | Margin % if quoted was billed |
+| **Actual Margin %** | `(Actual Margin / Billable Value) × 100` | Realized margin percentage |
 
 ### Rate Metrics (per hour)
 
@@ -31,34 +50,59 @@ A structured Streamlit dashboard for analyzing job profitability with **full met
 
 ### Value Metrics
 
-| Metric | Formula | Source Fields |
-|--------|---------|---------------|
+| Metric | Formula | Source |
+|--------|---------|--------|
 | **Quoted Hours** | Direct | `[Job Task] Quoted Time` |
 | **Quoted Amount** | Direct | `[Job Task] Quoted Amount` |
 | **Actual Hours** | Direct | `[Job Task] Actual Time (totalled)` |
 | **Billable Value** | Calculated | `Actual Hours × Billable Rate/Hr` |
-| **Cost (T&M)** | Calculated | `Actual Hours × Cost Rate/Hr` |
-| **Profit** | Calculated | `Billable Value - Cost` |
+| **Base Cost** | Calculated | `Actual Hours × Cost Rate/Hr` |
 
-### Variance Metrics
+### Performance Metrics
 
 | Metric | Formula | Description |
 |--------|---------|-------------|
-| **Margin Erosion** | `Quoted Margin % - Billable Margin %` | How much margin was lost |
-| **Hours Variance** | `Actual Hours - Quoted Hours` | Hours over/under |
-| **Unbilled Hours** | `Actual Hours - Invoiced Hours` | Work not yet billed |
+| **Revenue Realization** | `(Billable Value / Quoted Amount) × 100` | % of quoted revenue realized |
+| **Hours Variance** | `Actual Hours - Quoted Hours` | Hours over/under quote |
+| **Margin Erosion** | `Quoted Margin % - Actual Margin %` | Margin lost vs expectation |
 
-### Why Calculated Values?
+---
 
-- **Billable Value** uses `[Task] Billable Rate` × hours to show what *should* be billed at standard rates
-- **Cost (T&M)** uses `[Task] Base Rate` × hours for true internal labor cost
-- This ensures consistency and traceability vs using pre-aggregated data fields
+## Dashboard Tabs
+
+### 📊 Executive Summary
+- Key headlines and alerts
+- Revenue & margin KPIs
+- Rate analysis
+- Margin bridge visualization (Quoted → Actual)
+
+### 📈 Monthly Trends
+- Selectable metric trends
+- Quoted vs Billable vs Cost comparison
+- Margin evolution (Quoted vs Actual)
+- Department breakdown over time
+
+### 🏢 Hierarchy Drill-Down
+- Level 1: Department performance
+- Level 2: Product analysis
+- Level 3: Job profitability
+- Level 4: Task breakdown
+
+### 💡 Insights & Narratives
+- Automated margin driver analysis
+- Quoting accuracy insights
+- Trend signals
+- Action items
+- Executive narrative summary
+
+### 🔍 Reconciliation
+- Filter summary
+- Validation totals
+- Metric definitions reference
 
 ---
 
 ## Hierarchy Structure
-
-The dashboard uses a 4-level drill-down structure:
 
 ```
 Department
@@ -67,116 +111,76 @@ Department
         └── Task
 ```
 
-| Level | Source Field | Description |
-|-------|--------------|-------------|
-| **Department** | `Department` | Top-level business unit |
-| **Product** | `Product` | Service/product line within department |
-| **Job** | `[Job] Job No.` | Individual project |
-| **Task** | `[Job Task] Name` | Work item within a job |
+All metrics aggregate from Task → Job → Product → Department level.
 
 ---
 
-## Filtering Logic
+## Time-Based Analysis
 
-### Toggle Options (in sidebar)
+### Fiscal Year Logic (Australian)
+- **FY26** = July 1, 2025 → June 30, 2026
+- Jobs assigned based on `[Job] Start Date`
+- Month ≥ 7 → next year's FY
+
+### Monthly Aggregation
+- Calendar month grouping (e.g., "Jul 2025")
+- FY month ordering (1=Jul, 12=Jun)
+- Trend analysis across selected FY
+
+---
+
+## Filtering Options
 
 | Filter | Default | Description |
 |--------|---------|-------------|
-| **Department** | All | Filter by Department |
-| **Fiscal Year** | All | Filter by `[Job] Start Date` (Australian FY: Jul-Jun) |
-| **Exclude SG Allocation** | ✔ ON | Removes "Social Garden Invoice Allocation" entries |
-| **Billable Tasks Only** | ✔ ON | Keeps only tasks where `Base Rate > 0` AND `Billable Rate > 0` |
-
-### Billable Task Definition
-
-A task is considered "billable" for analysis if:
-```
-[Task] Base Rate > 0  AND  [Task] Billable Rate > 0
-```
-
-Tasks without proper rate assignments (rate = 0 or #N/A) are excluded by default.
+| **Fiscal Year** | Latest | Required for trend analysis |
+| **Department** | All | Filter by business unit |
+| **Exclude SG Allocation** | ✔ ON | Removes internal allocation entries |
+| **Billable Tasks Only** | ✔ ON | Keeps tasks where Base Rate > 0 AND Billable Rate > 0 |
 
 ---
 
-## Reconciliation & Traceability
+## Narrative Insights Generated
 
-The dashboard includes a **Data Reconciliation** panel showing:
+### Headline Alerts
+- Revenue realization gaps
+- Overall margin status
+- Loss-making job counts
 
-### Filter Summary
-- Raw records count
-- Records after each filter
-- Exclusion breakdown by filter type
+### Margin Drivers
+- Worst/best performing departments
+- Impact quantification
 
-### Validation Totals
+### Quoting Accuracy
+- Underquoted jobs identification
+- Scope creep (unquoted work) detection
+- Excess hours analysis
 
-| Metric | What It Shows |
-|--------|---------------|
-| Sum of Quoted Hours | `SUM([Job Task] Quoted Time)` |
-| Sum of Actual Hours | `SUM([Job Task] Actual Time (totalled))` |
-| Sum of Quoted Amount | `SUM([Job Task] Quoted Amount)` |
-| Sum of Billable Value | `SUM(Actual Hours × Billable Rate/Hr)` — calculated |
-| Sum of Cost T&M | `SUM(Actual Hours × Cost Rate/Hr)` — calculated |
-| Avg Quoted Rate/Hr | `AVG(Quoted Amount / Quoted Hours)` |
-| Avg Billable Rate/Hr | `AVG([Task] Billable Rate)` |
-| Avg Cost Rate/Hr | `AVG([Task] Base Rate)` |
-
----
-
-## Repository Structure
-
-```
-job-profitability-analysis/
-├── data/
-│   └── [Your Excel file]
-├── notebooks/
-│   └── exploration.ipynb
-├── app.py                 # Streamlit dashboard
-├── analysis.py            # Data processing with metric docs
-├── requirements.txt
-└── README.md
-```
+### Action Items
+- Top loss-making jobs to review
+- Specific variance explanations
 
 ---
 
 ## Required Data Columns
 
 ### Job-Level
+- `[Job] Job No.`, `[Job] Name`, `[Job] Client`
+- `[Job] Start Date` (for FY and monthly grouping)
+- `[Job] Status`, `[Job] Budget`
 
-| Column | Used For |
-|--------|----------|
-| `[Job] Job No.` | Job identifier |
-| `[Job] Name` | Job name |
-| `[Job] Client` | Client name |
-| `[Job] Client Manager` | Account manager |
-| `[Job] Start Date` | Fiscal year determination |
-| `[Job] Status` | Job status |
-| `[Job] Budget` | Job budget |
-
-### Hierarchy Fields
-
-| Column | Used For |
-|--------|----------|
-| `Department` | Level 1 grouping |
-| `Product` | Level 2 grouping |
+### Hierarchy
+- `Department`, `Product`
 
 ### Task-Level
+- `[Job Task] Name`, `Task Category`
+- `[Job Task] Quoted Time`, `[Job Task] Quoted Amount`
+- `[Job Task] Actual Time (totalled)`
+- `[Job Task] Invoiced Time`, `[Job Task] Invoiced Amount`
 
-| Column | Used For |
-|--------|----------|
-| `[Job Task] Name` | Task identifier |
-| `[Job Task] Quoted Time` | Estimated hours |
-| `[Job Task] Quoted Amount` | Estimated revenue |
-| `[Job Task] Actual Time (totalled)` | Logged hours |
-| `[Job Task] Invoiced Time` | Billed hours |
-| `[Job Task] Invoiced Amount` | Billed amount |
-| `Task Category` | Task classification |
-
-### Rate Fields (Critical)
-
-| Column | Used For |
-|--------|----------|
-| `[Task] Base Rate` | Internal cost rate ($/hr) — Cost Rate/Hr |
-| `[Task] Billable Rate` | Client billing rate ($/hr) — Billable Rate/Hr |
+### Rates
+- `[Task] Base Rate` (Cost Rate/Hr)
+- `[Task] Billable Rate` (Billable Rate/Hr)
 
 ---
 
@@ -201,23 +205,13 @@ streamlit run app.py
 
 ## Analysis Workflow
 
-1. **Load Data** — Upload or place Excel in `data/`
-2. **Configure Filters** — Set Department, FY, toggle allocation/billable filters
-3. **Verify Reconciliation** — Check totals match your source
-4. **Analyze Departments** — Find problem areas at top level
-5. **Drill into Products** — Identify underperforming product lines
-6. **Review Jobs** — Find specific problem projects
-7. **Examine Tasks** — Find root cause (scope creep, underestimation)
-8. **Synthesis** — Review overall patterns
-
----
-
-## Fiscal Year Logic
-
-Australian convention:
-- **FY26** = July 1, 2025 → June 30, 2026
-- Jobs assigned based on `[Job] Start Date`
-- Month ≥ 7 → next year's FY
+1. **Select FY** — Choose fiscal year for trend analysis
+2. **Review Headlines** — Check key alerts in Executive Summary
+3. **Analyze Trends** — Explore monthly patterns
+4. **Identify Problems** — Use hierarchy drill-down
+5. **Read Insights** — Review automated narratives
+6. **Take Action** — Follow recommended action items
+7. **Verify Data** — Check reconciliation totals
 
 ---
 
@@ -225,8 +219,19 @@ Australian convention:
 
 | Issue | Signal | Root Cause |
 |-------|--------|------------|
-| **Scope Creep** | Quoted Hrs = 0, Actual > 0 | Work not in original quote |
+| **Scope Creep** | Unquoted tasks with actual hours | Work not in original quote |
 | **Underestimation** | Actual Hrs >> Quoted Hrs | Poor estimation |
-| **Margin Erosion** | Billable Margin << Quoted Margin | Overruns without additional billing |
-| **Unbilled Work** | Actual Hrs > Invoiced Hrs | Billing gaps |
-| **Rate Mismatch** | Billable Rate/Hr ≠ Quoted Rate/Hr | Discrepancy between quote and standard rates |
+| **Margin Erosion** | Actual Margin << Quoted Margin | Revenue leakage |
+| **Revenue Gap** | Realization < 100% | Discounts or billing gaps |
+| **Rate Mismatch** | Billable Rate ≠ Quoted Rate/Hr | Pricing inconsistency |
+
+---
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `app.py` | Streamlit dashboard with trend analysis |
+| `analysis.py` | Data processing, monthly aggregations, insights |
+| `requirements.txt` | Python dependencies |
+| `README.md` | Documentation |
