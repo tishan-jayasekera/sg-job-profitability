@@ -1,51 +1,48 @@
 """
 Job Profitability Analysis Module
 =================================
-Data loading, cleaning, and metric calculations for job profitability analysis.
+Hierarchy: Department → Product → Job → Task
 
-METRIC DEFINITIONS (IMPORTANT):
--------------------------------
-- Quoted Amount:   [Job Task] Quoted Amount (from quote/estimate)
-- Quoted Hours:    [Job Task] Quoted Time (estimated hours)
-- Actual Hours:    [Job Task] Actual Time (totalled) (logged hours)
-- Billable Value:  Actual Hours × [Task] Billable Rate (what SHOULD be billed)
-- Cost (T&M):      Actual Hours × [Task] Base Rate (internal labor cost)
-- Profit:          Billable Value - Cost
-- Margin %:        (Profit / Billable Value) × 100
+MARGIN DEFINITIONS:
+- Quoted Margin %:   (Quoted Amount - Cost) / Quoted Amount × 100
+- Billable Margin %: (Billable Value - Cost) / Billable Value × 100
 
-FILTERING:
-----------
-- Billable tasks only: Tasks where BOTH [Task] Base Rate > 0 AND [Task] Billable Rate > 0
-- Optional: Exclude "Social Garden Invoice Allocation" entries (toggle)
+RATE DEFINITIONS (per hour):
+- Quoted Rate/Hr:    Quoted Amount / Quoted Hours
+- Billable Rate/Hr:  [Task] Billable Rate
+- Cost Rate/Hr:      [Task] Base Rate (T&M cost per hour)
+
+VALUE DEFINITIONS:
+- Quoted Amount:     [Job Task] Quoted Amount
+- Billable Value:    Actual Hours × Billable Rate/Hr
+- Cost (T&M):        Actual Hours × Cost Rate/Hr
+- Profit:            Billable Value - Cost
 """
 
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Optional
 
 
 # =============================================================================
-# DATA PARSING UTILITIES
+# DATA PARSING
 # =============================================================================
 
 def parse_numeric(val) -> float:
-    """
-    Parse numeric values, handling commas and #N/A.
-    Returns 0.0 for invalid/missing values.
-    """
+    """Parse numeric, handling commas and #N/A."""
     if pd.isna(val) or str(val).strip() in ("#N/A", "", "N/A", "-"):
         return 0.0
     if isinstance(val, (int, float)):
         return float(val)
     try:
         return float(str(val).replace(",", "").strip())
-    except (ValueError, TypeError):
+    except:
         return 0.0
 
 
 def parse_date(val):
-    """Parse date values in various formats (dd-Mon-yy, etc.)."""
+    """Parse date in various formats."""
     if pd.isna(val) or str(val).strip() in ("", "#N/A", "N/A"):
         return pd.NaT
     if isinstance(val, (datetime, pd.Timestamp)):
@@ -61,49 +58,35 @@ def parse_date(val):
         return pd.NaT
 
 
-def get_fiscal_year(date) -> int:
-    """
-    Get Australian fiscal year from date.
-    FY runs July 1 - June 30. 
-    Example: FY26 = Jul 2025 - Jun 2026 → returns 2026
-    """
+def get_fiscal_year(date) -> Optional[int]:
+    """Australian FY (Jul-Jun). FY26 = Jul 2025 - Jun 2026."""
     if pd.isna(date):
         return None
     return date.year + 1 if date.month >= 7 else date.year
 
 
 def get_fy_label(fy) -> str:
-    """Convert fiscal year int to label (e.g., 2026 -> 'FY26')."""
     if pd.isna(fy):
         return "Unknown"
     return f"FY{str(int(fy))[-2:]}"
 
 
 # =============================================================================
-# DATA LOADING AND FILTERING
+# DATA LOADING
 # =============================================================================
 
 def load_raw_data(filepath, sheet_name: str = "Data") -> pd.DataFrame:
-    """
-    Load raw Excel data without any filtering.
-    Returns unmodified dataframe for reconciliation purposes.
-    """
-    df = pd.read_excel(filepath, sheet_name=sheet_name)
-    return df
+    """Load raw Excel data."""
+    return pd.read_excel(filepath, sheet_name=sheet_name)
 
 
 def clean_and_parse(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Parse numeric and date columns. Does NOT filter any rows.
+    Parse columns and compute derived metrics.
     
-    Numeric columns parsed:
-    - [Job Task] Quoted Time, Quoted Amount, Actual Time, etc.
-    - [Task] Base Rate, Billable Rate
-    - Time+Material (Base)
-    
-    Date columns parsed:
-    - [Job] Start Date, Due Date, Completed Date
-    - [Job Task] Start Date, Due Date, Date Completed
+    Uses existing columns:
+    - "Product" (direct from data)
+    - "Department" (direct from data)
     """
     df = df.copy()
     
@@ -130,28 +113,45 @@ def clean_and_parse(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = df[col].apply(parse_date)
     
-    # Add fiscal year columns
+    # Fiscal year
     df["Fiscal_Year"] = df["[Job] Start Date"].apply(get_fiscal_year)
     df["FY_Label"] = df["Fiscal_Year"].apply(get_fy_label)
     
-    # ==========================================================================
-    # COMPUTED METRICS (based on rates × hours)
-    # ==========================================================================
+    # Clean Product and Department (direct from data)
+    if "Product" in df.columns:
+        df["Product"] = df["Product"].fillna("Unknown").astype(str).str.strip()
+    else:
+        df["Product"] = "Unknown"
     
-    # Billable Value = Actual Hours × Billable Rate
-    # This is what SHOULD be billed based on time worked at standard rate
-    df["Calc_Billable_Value"] = df["[Job Task] Actual Time (totalled)"] * df["[Task] Billable Rate"]
+    if "Department" in df.columns:
+        df["Department"] = df["Department"].fillna("Unknown").astype(str).str.strip()
+    else:
+        df["Department"] = "Unknown"
     
-    # Cost (Time & Materials) = Actual Hours × Base Rate
-    # This is the internal labor cost
-    df["Calc_Cost_TM"] = df["[Job Task] Actual Time (totalled)"] * df["[Task] Base Rate"]
+    # =========================================================================
+    # RATE CALCULATIONS (per hour)
+    # =========================================================================
+    # Billable Rate/Hr = [Task] Billable Rate
+    df["Billable_Rate_Hr"] = df["[Task] Billable Rate"]
     
-    # Quoted Rate (implied) = Quoted Amount / Quoted Time
-    df["Calc_Quoted_Rate"] = np.where(
+    # Cost Rate/Hr = [Task] Base Rate
+    df["Cost_Rate_Hr"] = df["[Task] Base Rate"]
+    
+    # Quoted Rate/Hr = Quoted Amount / Quoted Hours
+    df["Quoted_Rate_Hr"] = np.where(
         df["[Job Task] Quoted Time"] > 0,
         df["[Job Task] Quoted Amount"] / df["[Job Task] Quoted Time"],
         0
     )
+    
+    # =========================================================================
+    # VALUE CALCULATIONS
+    # =========================================================================
+    # Billable Value = Actual Hours × Billable Rate/Hr
+    df["Calc_Billable_Value"] = df["[Job Task] Actual Time (totalled)"] * df["Billable_Rate_Hr"]
+    
+    # Cost (T&M) = Actual Hours × Cost Rate/Hr
+    df["Calc_Cost_TM"] = df["[Job Task] Actual Time (totalled)"] * df["Cost_Rate_Hr"]
     
     return df
 
@@ -160,177 +160,150 @@ def apply_filters(
     df: pd.DataFrame,
     exclude_sg_allocation: bool = True,
     billable_only: bool = True,
-    fiscal_year: int = None
+    fiscal_year: int = None,
+    department: str = None
 ) -> Tuple[pd.DataFrame, Dict]:
-    """
-    Apply filters to the dataset and return reconciliation info.
-    
-    Filters:
-    1. exclude_sg_allocation: Remove "Social Garden Invoice Allocation" tasks
-    2. billable_only: Keep only tasks where Base Rate > 0 AND Billable Rate > 0
-    3. fiscal_year: Filter to specific FY (None = all years)
-    
-    Returns:
-    - Filtered DataFrame
-    - Reconciliation dict with counts
-    """
+    """Apply filters and return reconciliation."""
     recon = {
         "raw_records": len(df),
         "excluded_sg_allocation": 0,
         "excluded_non_billable": 0,
         "excluded_other_fy": 0,
+        "excluded_other_dept": 0,
         "final_records": 0,
     }
     
-    df_filtered = df.copy()
+    df_f = df.copy()
     
-    # Filter 1: Social Garden Invoice Allocation
     if exclude_sg_allocation:
-        mask_sg = df_filtered["[Job Task] Name"] == "Social Garden Invoice Allocation"
-        recon["excluded_sg_allocation"] = mask_sg.sum()
-        df_filtered = df_filtered[~mask_sg]
+        mask = df_f["[Job Task] Name"] == "Social Garden Invoice Allocation"
+        recon["excluded_sg_allocation"] = mask.sum()
+        df_f = df_f[~mask]
     
-    # Filter 2: Billable tasks only (both rates must be > 0)
     if billable_only:
-        mask_billable = (df_filtered["[Task] Base Rate"] > 0) & (df_filtered["[Task] Billable Rate"] > 0)
-        recon["excluded_non_billable"] = (~mask_billable).sum()
-        df_filtered = df_filtered[mask_billable]
+        mask = (df_f["Cost_Rate_Hr"] > 0) & (df_f["Billable_Rate_Hr"] > 0)
+        recon["excluded_non_billable"] = (~mask).sum()
+        df_f = df_f[mask]
     
-    # Filter 3: Fiscal year
     if fiscal_year is not None:
-        mask_fy = df_filtered["Fiscal_Year"] == fiscal_year
-        recon["excluded_other_fy"] = (~mask_fy).sum()
-        df_filtered = df_filtered[mask_fy]
+        mask = df_f["Fiscal_Year"] == fiscal_year
+        recon["excluded_other_fy"] = (~mask).sum()
+        df_f = df_f[mask]
     
-    recon["final_records"] = len(df_filtered)
+    if department is not None:
+        mask = df_f["Department"] == department
+        recon["excluded_other_dept"] = (~mask).sum()
+        df_f = df_f[mask]
     
-    return df_filtered, recon
+    recon["final_records"] = len(df_f)
+    return df_f, recon
 
 
 def get_available_fiscal_years(df: pd.DataFrame) -> list:
-    """Get sorted list of unique fiscal years in the data."""
-    years = df["Fiscal_Year"].dropna().unique()
-    return sorted([int(y) for y in years if pd.notna(y)])
+    return sorted([int(y) for y in df["Fiscal_Year"].dropna().unique() if pd.notna(y)])
+
+def get_available_departments(df: pd.DataFrame) -> list:
+    return sorted(df["Department"].dropna().unique().tolist())
+
+def get_available_products(df: pd.DataFrame, department: str = None) -> list:
+    if department:
+        prods = df[df["Department"] == department]["Product"].dropna().unique()
+    else:
+        prods = df["Product"].dropna().unique()
+    return sorted(prods.tolist())
 
 
 # =============================================================================
-# RECONCILIATION & VALIDATION
+# RECONCILIATION
 # =============================================================================
 
 def compute_reconciliation_totals(df: pd.DataFrame, recon: Dict) -> Dict:
-    """
-    Compute totals for reconciliation/validation.
-    These totals should match the underlying data exactly.
-    """
     recon["totals"] = {
-        # Hours
         "sum_quoted_hours": df["[Job Task] Quoted Time"].sum(),
         "sum_actual_hours": df["[Job Task] Actual Time (totalled)"].sum(),
         "sum_invoiced_hours": df["[Job Task] Invoiced Time"].sum(),
-        
-        # Amounts from data
         "sum_quoted_amount": df["[Job Task] Quoted Amount"].sum(),
-        "sum_billable_amount_field": df["[Job Task] Billable Amount"].sum(),  # From data field
+        "sum_billable_value": df["Calc_Billable_Value"].sum(),
+        "sum_cost_tm": df["Calc_Cost_TM"].sum(),
         "sum_invoiced_amount": df["[Job Task] Invoiced Amount"].sum(),
-        "sum_tm_base_field": df["Time+Material (Base)"].sum(),  # From data field
-        
-        # Calculated amounts (rate × hours)
-        "sum_calc_billable_value": df["Calc_Billable_Value"].sum(),  # Hours × Billable Rate
-        "sum_calc_cost_tm": df["Calc_Cost_TM"].sum(),  # Hours × Base Rate
-        
-        # Counts
+        "avg_quoted_rate_hr": df[df["Quoted_Rate_Hr"] > 0]["Quoted_Rate_Hr"].mean() if len(df[df["Quoted_Rate_Hr"] > 0]) > 0 else 0,
+        "avg_billable_rate_hr": df["Billable_Rate_Hr"].mean(),
+        "avg_cost_rate_hr": df["Cost_Rate_Hr"].mean(),
         "unique_jobs": df["[Job] Job No."].nunique(),
-        "unique_tasks": df["[Job Task] Name"].nunique(),
-        "unique_categories": df["[Job] Category"].nunique(),
+        "unique_products": df["Product"].nunique(),
+        "unique_departments": df["Department"].nunique(),
     }
     return recon
 
 
 # =============================================================================
-# LEVEL 1: CATEGORY-LEVEL AGGREGATION
+# DEPARTMENT SUMMARY
 # =============================================================================
 
-def compute_category_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    High-level summary by Job Category.
-    
-    METRICS COMPUTED:
-    -----------------
-    - Quoted_Hours:     SUM([Job Task] Quoted Time)
-    - Quoted_Amount:    SUM([Job Task] Quoted Amount)
-    - Actual_Hours:     SUM([Job Task] Actual Time (totalled))
-    - Billable_Value:   SUM(Actual Hours × Billable Rate) — calculated
-    - Cost_TM:          SUM(Actual Hours × Base Rate) — calculated
-    - Profit:           Billable_Value - Cost_TM
-    - Margin_Pct:       (Profit / Billable_Value) × 100
-    """
-    cat_group = df.groupby("[Job] Category").agg({
+def compute_department_summary(df: pd.DataFrame) -> pd.DataFrame:
+    g = df.groupby("Department").agg({
         "[Job Task] Quoted Time": "sum",
         "[Job Task] Quoted Amount": "sum",
         "[Job Task] Actual Time (totalled)": "sum",
         "[Job Task] Invoiced Time": "sum",
-        "[Job Task] Invoiced Amount": "sum",
+        "Calc_Billable_Value": "sum",
+        "Calc_Cost_TM": "sum",
+        "[Job] Job No.": pd.Series.nunique,
+        "Product": pd.Series.nunique,
+    }).reset_index()
+    
+    g.columns = ["Department", "Quoted_Hours", "Quoted_Amount", "Actual_Hours",
+                 "Invoiced_Hours", "Billable_Value", "Cost_TM", "Job_Count", "Product_Count"]
+    
+    g["Profit"] = g["Billable_Value"] - g["Cost_TM"]
+    g["Quoted_Margin_Pct"] = np.where(g["Quoted_Amount"] > 0, ((g["Quoted_Amount"] - g["Cost_TM"]) / g["Quoted_Amount"]) * 100, 0)
+    g["Billable_Margin_Pct"] = np.where(g["Billable_Value"] > 0, (g["Profit"] / g["Billable_Value"]) * 100, 0)
+    g["Quoted_Rate_Hr"] = np.where(g["Quoted_Hours"] > 0, g["Quoted_Amount"] / g["Quoted_Hours"], 0)
+    g["Billable_Rate_Hr"] = np.where(g["Actual_Hours"] > 0, g["Billable_Value"] / g["Actual_Hours"], 0)
+    g["Cost_Rate_Hr"] = np.where(g["Actual_Hours"] > 0, g["Cost_TM"] / g["Actual_Hours"], 0)
+    g["Hours_Variance"] = g["Actual_Hours"] - g["Quoted_Hours"]
+    g["Hours_Variance_Pct"] = np.where(g["Quoted_Hours"] > 0, (g["Hours_Variance"] / g["Quoted_Hours"]) * 100, 0)
+    
+    return g
+
+
+# =============================================================================
+# PRODUCT SUMMARY
+# =============================================================================
+
+def compute_product_summary(df: pd.DataFrame) -> pd.DataFrame:
+    g = df.groupby(["Department", "Product"]).agg({
+        "[Job Task] Quoted Time": "sum",
+        "[Job Task] Quoted Amount": "sum",
+        "[Job Task] Actual Time (totalled)": "sum",
+        "[Job Task] Invoiced Time": "sum",
         "Calc_Billable_Value": "sum",
         "Calc_Cost_TM": "sum",
         "[Job] Job No.": pd.Series.nunique,
     }).reset_index()
     
-    cat_group.columns = [
-        "Category", "Quoted_Hours", "Quoted_Amount", "Actual_Hours",
-        "Invoiced_Hours", "Invoiced_Amount",
-        "Billable_Value", "Cost_TM", "Job_Count"
-    ]
+    g.columns = ["Department", "Product", "Quoted_Hours", "Quoted_Amount", "Actual_Hours",
+                 "Invoiced_Hours", "Billable_Value", "Cost_TM", "Job_Count"]
     
-    # Profit = Billable Value - Cost
-    cat_group["Profit"] = cat_group["Billable_Value"] - cat_group["Cost_TM"]
+    g["Profit"] = g["Billable_Value"] - g["Cost_TM"]
+    g["Quoted_Margin_Pct"] = np.where(g["Quoted_Amount"] > 0, ((g["Quoted_Amount"] - g["Cost_TM"]) / g["Quoted_Amount"]) * 100, 0)
+    g["Billable_Margin_Pct"] = np.where(g["Billable_Value"] > 0, (g["Profit"] / g["Billable_Value"]) * 100, 0)
+    g["Quoted_Rate_Hr"] = np.where(g["Quoted_Hours"] > 0, g["Quoted_Amount"] / g["Quoted_Hours"], 0)
+    g["Billable_Rate_Hr"] = np.where(g["Actual_Hours"] > 0, g["Billable_Value"] / g["Actual_Hours"], 0)
+    g["Cost_Rate_Hr"] = np.where(g["Actual_Hours"] > 0, g["Cost_TM"] / g["Actual_Hours"], 0)
+    g["Hours_Variance"] = g["Actual_Hours"] - g["Quoted_Hours"]
+    g["Hours_Variance_Pct"] = np.where(g["Quoted_Hours"] > 0, (g["Hours_Variance"] / g["Quoted_Hours"]) * 100, 0)
     
-    # Margin % = Profit / Billable Value × 100
-    cat_group["Margin_Pct"] = np.where(
-        cat_group["Billable_Value"] > 0,
-        (cat_group["Profit"] / cat_group["Billable_Value"]) * 100,
-        0
-    )
-    
-    # Variances
-    cat_group["Hours_Variance"] = cat_group["Actual_Hours"] - cat_group["Quoted_Hours"]
-    cat_group["Hours_Variance_Pct"] = np.where(
-        cat_group["Quoted_Hours"] > 0,
-        (cat_group["Hours_Variance"] / cat_group["Quoted_Hours"]) * 100,
-        0
-    )
-    
-    cat_group["Amount_Variance"] = cat_group["Billable_Value"] - cat_group["Quoted_Amount"]
-    cat_group["Amount_Variance_Pct"] = np.where(
-        cat_group["Quoted_Amount"] > 0,
-        (cat_group["Amount_Variance"] / cat_group["Quoted_Amount"]) * 100,
-        0
-    )
-    
-    return cat_group
+    return g
 
 
 # =============================================================================
-# LEVEL 2: JOB-LEVEL AGGREGATION
+# JOB SUMMARY
 # =============================================================================
 
 def compute_job_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Job-level profitability summary.
-    
-    METRICS COMPUTED:
-    -----------------
-    - Quoted_Hours:     SUM([Job Task] Quoted Time)
-    - Quoted_Amount:    SUM([Job Task] Quoted Amount)
-    - Actual_Hours:     SUM([Job Task] Actual Time (totalled))
-    - Billable_Value:   SUM(Actual Hours × Billable Rate)
-    - Cost_TM:          SUM(Actual Hours × Base Rate)
-    - Profit:           Billable_Value - Cost_TM
-    - Margin_Pct:       (Profit / Billable_Value) × 100
-    - Quoted_Margin:    (Quoted_Amount - Cost_TM) / Quoted_Amount × 100
-    - Margin_Erosion:   Quoted_Margin - Actual_Margin
-    """
-    job_group = df.groupby([
-        "[Job] Category", "[Job] Job No.", "[Job] Name",
+    g = df.groupby([
+        "Department", "Product", "[Job] Job No.", "[Job] Name",
         "[Job] Client", "[Job] Client Manager", "[Job] Status",
         "[Job] Start Date", "Fiscal_Year", "FY_Label"
     ]).agg({
@@ -344,76 +317,37 @@ def compute_job_summary(df: pd.DataFrame) -> pd.DataFrame:
         "[Job] Budget": "first",
     }).reset_index()
     
-    job_group.columns = [
-        "Category", "Job_No", "Job_Name", "Client", "Client_Manager", "Status",
+    g.columns = [
+        "Department", "Product", "Job_No", "Job_Name", "Client", "Client_Manager", "Status",
         "Start_Date", "Fiscal_Year", "FY_Label",
-        "Quoted_Hours", "Quoted_Amount", "Actual_Hours",
-        "Invoiced_Hours", "Invoiced_Amount",
+        "Quoted_Hours", "Quoted_Amount", "Actual_Hours", "Invoiced_Hours", "Invoiced_Amount",
         "Billable_Value", "Cost_TM", "Budget"
     ]
     
-    # Profit = Billable Value - Cost
-    job_group["Profit"] = job_group["Billable_Value"] - job_group["Cost_TM"]
+    g["Profit"] = g["Billable_Value"] - g["Cost_TM"]
+    g["Quoted_Margin_Pct"] = np.where(g["Quoted_Amount"] > 0, ((g["Quoted_Amount"] - g["Cost_TM"]) / g["Quoted_Amount"]) * 100, 0)
+    g["Billable_Margin_Pct"] = np.where(g["Billable_Value"] > 0, (g["Profit"] / g["Billable_Value"]) * 100, 0)
+    g["Margin_Erosion"] = g["Quoted_Margin_Pct"] - g["Billable_Margin_Pct"]
+    g["Quoted_Rate_Hr"] = np.where(g["Quoted_Hours"] > 0, g["Quoted_Amount"] / g["Quoted_Hours"], 0)
+    g["Billable_Rate_Hr"] = np.where(g["Actual_Hours"] > 0, g["Billable_Value"] / g["Actual_Hours"], 0)
+    g["Cost_Rate_Hr"] = np.where(g["Actual_Hours"] > 0, g["Cost_TM"] / g["Actual_Hours"], 0)
+    g["Hours_Variance"] = g["Actual_Hours"] - g["Quoted_Hours"]
+    g["Hours_Variance_Pct"] = np.where(g["Quoted_Hours"] > 0, (g["Hours_Variance"] / g["Quoted_Hours"]) * 100, np.where(g["Actual_Hours"] > 0, 100, 0))
+    g["Unbilled_Hours"] = g["Actual_Hours"] - g["Invoiced_Hours"]
+    g["Is_Overrun"] = g["Hours_Variance"] > 0
+    g["Is_Loss"] = g["Profit"] < 0
+    g["Has_Margin_Erosion"] = g["Margin_Erosion"] > 10
     
-    # Margin % = Profit / Billable Value × 100
-    job_group["Margin_Pct"] = np.where(
-        job_group["Billable_Value"] > 0,
-        (job_group["Profit"] / job_group["Billable_Value"]) * 100,
-        0
-    )
-    
-    # Quoted Margin = (Quoted Amount - Cost) / Quoted Amount × 100
-    job_group["Quoted_Margin_Pct"] = np.where(
-        job_group["Quoted_Amount"] > 0,
-        ((job_group["Quoted_Amount"] - job_group["Cost_TM"]) / job_group["Quoted_Amount"]) * 100,
-        0
-    )
-    
-    # Margin Erosion = Quoted Margin - Actual Margin
-    job_group["Margin_Erosion"] = job_group["Quoted_Margin_Pct"] - job_group["Margin_Pct"]
-    
-    # Hour variances
-    job_group["Hours_Variance"] = job_group["Actual_Hours"] - job_group["Quoted_Hours"]
-    job_group["Hours_Variance_Pct"] = np.where(
-        job_group["Quoted_Hours"] > 0,
-        (job_group["Hours_Variance"] / job_group["Quoted_Hours"]) * 100,
-        np.where(job_group["Actual_Hours"] > 0, 100, 0)
-    )
-    
-    # Amount variance
-    job_group["Amount_Variance"] = job_group["Billable_Value"] - job_group["Quoted_Amount"]
-    
-    # Billing efficiency
-    job_group["Unbilled_Hours"] = job_group["Actual_Hours"] - job_group["Invoiced_Hours"]
-    
-    # Flags
-    job_group["Is_Overrun"] = job_group["Hours_Variance"] > 0
-    job_group["Is_Loss"] = job_group["Profit"] < 0
-    job_group["Has_Margin_Erosion"] = job_group["Margin_Erosion"] > 10
-    
-    return job_group
+    return g
 
 
 # =============================================================================
-# LEVEL 3: TASK-LEVEL AGGREGATION
+# TASK SUMMARY
 # =============================================================================
 
 def compute_task_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Task-level breakdown within each job.
-    
-    METRICS COMPUTED (per task):
-    ----------------------------
-    - Quoted_Hours:     [Job Task] Quoted Time
-    - Quoted_Amount:    [Job Task] Quoted Amount
-    - Actual_Hours:     [Job Task] Actual Time (totalled)
-    - Billable_Value:   Actual Hours × [Task] Billable Rate
-    - Cost_TM:          Actual Hours × [Task] Base Rate
-    - Profit:           Billable_Value - Cost_TM
-    - Margin_Pct:       (Profit / Billable_Value) × 100
-    """
-    task_group = df.groupby([
-        "[Job] Category", "[Job] Job No.", "[Job] Name", "[Job Task] Name",
+    g = df.groupby([
+        "Department", "Product", "[Job] Job No.", "[Job] Name", "[Job Task] Name",
         "Task Category", "Fiscal_Year", "FY_Label"
     ]).agg({
         "[Job Task] Quoted Time": "sum",
@@ -423,217 +357,100 @@ def compute_task_summary(df: pd.DataFrame) -> pd.DataFrame:
         "[Job Task] Invoiced Amount": "sum",
         "Calc_Billable_Value": "sum",
         "Calc_Cost_TM": "sum",
-        "[Task] Base Rate": "mean",
-        "[Task] Billable Rate": "mean",
-        "Calc_Quoted_Rate": "mean",
+        "Cost_Rate_Hr": "mean",
+        "Billable_Rate_Hr": "mean",
+        "Quoted_Rate_Hr": "mean",
     }).reset_index()
     
-    task_group.columns = [
-        "Category", "Job_No", "Job_Name", "Task_Name",
+    g.columns = [
+        "Department", "Product", "Job_No", "Job_Name", "Task_Name",
         "Task_Category", "Fiscal_Year", "FY_Label",
-        "Quoted_Hours", "Quoted_Amount", "Actual_Hours",
-        "Invoiced_Hours", "Invoiced_Amount",
-        "Billable_Value", "Cost_TM",
-        "Base_Rate", "Billable_Rate", "Quoted_Rate"
+        "Quoted_Hours", "Quoted_Amount", "Actual_Hours", "Invoiced_Hours", "Invoiced_Amount",
+        "Billable_Value", "Cost_TM", "Cost_Rate_Hr", "Billable_Rate_Hr", "Quoted_Rate_Hr"
     ]
     
-    # Profit and Margin
-    task_group["Profit"] = task_group["Billable_Value"] - task_group["Cost_TM"]
-    task_group["Margin_Pct"] = np.where(
-        task_group["Billable_Value"] > 0,
-        (task_group["Profit"] / task_group["Billable_Value"]) * 100,
-        0
-    )
+    g["Profit"] = g["Billable_Value"] - g["Cost_TM"]
+    g["Quoted_Margin_Pct"] = np.where(g["Quoted_Amount"] > 0, ((g["Quoted_Amount"] - g["Cost_TM"]) / g["Quoted_Amount"]) * 100, 0)
+    g["Billable_Margin_Pct"] = np.where(g["Billable_Value"] > 0, (g["Profit"] / g["Billable_Value"]) * 100, 0)
+    g["Hours_Variance"] = g["Actual_Hours"] - g["Quoted_Hours"]
+    g["Hours_Variance_Pct"] = np.where(g["Quoted_Hours"] > 0, (g["Hours_Variance"] / g["Quoted_Hours"]) * 100, np.where(g["Actual_Hours"] > 0, 100, 0))
+    g["Unbilled_Hours"] = g["Actual_Hours"] - g["Invoiced_Hours"]
+    g["Is_Unquoted"] = (g["Quoted_Hours"] == 0) & (g["Actual_Hours"] > 0)
+    g["Is_Overrun"] = g["Hours_Variance"] > 0
+    g["Has_Unbilled"] = g["Unbilled_Hours"] > 0.5
     
-    # Variances
-    task_group["Hours_Variance"] = task_group["Actual_Hours"] - task_group["Quoted_Hours"]
-    task_group["Hours_Variance_Pct"] = np.where(
-        task_group["Quoted_Hours"] > 0,
-        (task_group["Hours_Variance"] / task_group["Quoted_Hours"]) * 100,
-        np.where(task_group["Actual_Hours"] > 0, 100, 0)
-    )
-    
-    task_group["Amount_Variance"] = task_group["Billable_Value"] - task_group["Quoted_Amount"]
-    
-    # Unbilled
-    task_group["Unbilled_Hours"] = task_group["Actual_Hours"] - task_group["Invoiced_Hours"]
-    
-    # Flags
-    task_group["Is_Unquoted"] = (task_group["Quoted_Hours"] == 0) & (task_group["Actual_Hours"] > 0)
-    task_group["Is_Overrun"] = task_group["Hours_Variance"] > 0
-    task_group["Has_Unbilled"] = task_group["Unbilled_Hours"] > 0.5  # > 30 min
-    
-    return task_group
+    return g
 
 
 # =============================================================================
-# ANALYSIS FUNCTIONS
+# ANALYSIS
 # =============================================================================
 
-def get_top_overruns(job_summary: pd.DataFrame, n: int = 10, by: str = "Hours_Variance") -> pd.DataFrame:
-    """Get top N jobs by overrun metric."""
-    return job_summary.nlargest(n, by)
+def get_top_overruns(js: pd.DataFrame, n: int = 10, by: str = "Hours_Variance") -> pd.DataFrame:
+    return js.nlargest(n, by)
 
+def get_loss_making_jobs(js: pd.DataFrame) -> pd.DataFrame:
+    return js[js["Is_Loss"]].sort_values("Profit")
 
-def get_loss_making_jobs(job_summary: pd.DataFrame) -> pd.DataFrame:
-    """Get all jobs with negative profit (losses)."""
-    return job_summary[job_summary["Is_Loss"]].sort_values("Profit")
+def get_unquoted_tasks(ts: pd.DataFrame) -> pd.DataFrame:
+    return ts[ts["Is_Unquoted"]].sort_values("Cost_TM", ascending=False)
 
-
-def get_unquoted_tasks(task_summary: pd.DataFrame) -> pd.DataFrame:
-    """Get tasks not in original quote (scope creep indicators)."""
-    return task_summary[task_summary["Is_Unquoted"]].sort_values("Cost_TM", ascending=False)
-
-
-def calculate_overall_metrics(job_summary: pd.DataFrame) -> dict:
-    """
-    Calculate high-level KPIs across all jobs.
-    
-    METRICS:
-    --------
-    - Total Quoted Amount
-    - Total Billable Value (Actual Hours × Billable Rate)
-    - Total Cost (Actual Hours × Base Rate)
-    - Total Profit (Billable Value - Cost)
-    - Overall Margin % (Profit / Billable Value × 100)
-    - Jobs over budget count
-    - Jobs at loss count
-    - Hours variance
-    """
-    n = len(job_summary)
+def calculate_overall_metrics(js: pd.DataFrame) -> dict:
+    n = len(js)
     if n == 0:
-        return {k: 0 for k in [
-            "total_jobs", "total_quoted_amount", "total_billable_value",
-            "total_cost_tm", "total_profit", "overall_margin_pct",
-            "avg_margin_pct", "avg_quoted_margin_pct", "margin_gap",
-            "jobs_over_budget", "jobs_at_loss", "overrun_rate", "loss_rate",
-            "total_hours_quoted", "total_hours_actual", "hours_variance",
-            "profit_lost_to_losses"
-        ]}
+        return {k: 0 for k in ["total_jobs", "total_quoted_amount", "total_billable_value", "total_cost_tm", "total_profit",
+                               "overall_quoted_margin_pct", "overall_billable_margin_pct",
+                               "avg_quoted_rate_hr", "avg_billable_rate_hr", "avg_cost_rate_hr",
+                               "jobs_over_budget", "jobs_at_loss", "overrun_rate", "loss_rate",
+                               "total_hours_quoted", "total_hours_actual", "hours_variance", "hours_variance_pct"]}
     
-    total_quoted = job_summary["Quoted_Amount"].sum()
-    total_billable = job_summary["Billable_Value"].sum()
-    total_cost = job_summary["Cost_TM"].sum()
-    total_profit = job_summary["Profit"].sum()
-    
-    jobs_over = int(job_summary["Is_Overrun"].sum())
-    jobs_loss = int(job_summary["Is_Loss"].sum())
-    
-    hrs_quoted = job_summary["Quoted_Hours"].sum()
-    hrs_actual = job_summary["Actual_Hours"].sum()
-    
-    losses_sum = job_summary[job_summary["Profit"] < 0]["Profit"].sum()
+    q, b, c, p = js["Quoted_Amount"].sum(), js["Billable_Value"].sum(), js["Cost_TM"].sum(), js["Profit"].sum()
+    hq, ha = js["Quoted_Hours"].sum(), js["Actual_Hours"].sum()
     
     return {
         "total_jobs": n,
-        "total_quoted_amount": total_quoted,
-        "total_billable_value": total_billable,
-        "total_cost_tm": total_cost,
-        "total_profit": total_profit,
-        "overall_margin_pct": (total_profit / total_billable * 100) if total_billable > 0 else 0,
-        "avg_margin_pct": job_summary["Margin_Pct"].mean(),
-        "avg_quoted_margin_pct": job_summary["Quoted_Margin_Pct"].mean(),
-        "margin_gap": job_summary["Quoted_Margin_Pct"].mean() - job_summary["Margin_Pct"].mean(),
-        "jobs_over_budget": jobs_over,
-        "jobs_at_loss": jobs_loss,
-        "overrun_rate": (jobs_over / n * 100) if n > 0 else 0,
-        "loss_rate": (jobs_loss / n * 100) if n > 0 else 0,
-        "total_hours_quoted": hrs_quoted,
-        "total_hours_actual": hrs_actual,
-        "hours_variance": hrs_actual - hrs_quoted,
-        "hours_variance_pct": ((hrs_actual - hrs_quoted) / hrs_quoted * 100) if hrs_quoted > 0 else 0,
-        "profit_lost_to_losses": abs(losses_sum),
+        "total_quoted_amount": q,
+        "total_billable_value": b,
+        "total_cost_tm": c,
+        "total_profit": p,
+        "overall_quoted_margin_pct": ((q - c) / q * 100) if q > 0 else 0,
+        "overall_billable_margin_pct": (p / b * 100) if b > 0 else 0,
+        "avg_quoted_rate_hr": (q / hq) if hq > 0 else 0,
+        "avg_billable_rate_hr": (b / ha) if ha > 0 else 0,
+        "avg_cost_rate_hr": (c / ha) if ha > 0 else 0,
+        "jobs_over_budget": int(js["Is_Overrun"].sum()),
+        "jobs_at_loss": int(js["Is_Loss"].sum()),
+        "overrun_rate": (js["Is_Overrun"].sum() / n * 100) if n > 0 else 0,
+        "loss_rate": (js["Is_Loss"].sum() / n * 100) if n > 0 else 0,
+        "total_hours_quoted": hq,
+        "total_hours_actual": ha,
+        "hours_variance": ha - hq,
+        "hours_variance_pct": ((ha - hq) / hq * 100) if hq > 0 else 0,
     }
 
-
-def analyze_overrun_causes(task_summary: pd.DataFrame) -> dict:
-    """
-    Analyze common reasons for margin erosion.
-    
-    Categories:
-    - Scope creep (unquoted tasks)
-    - Underestimation (overrun tasks)
-    - Unbilled work
-    """
-    unquoted = task_summary[task_summary["Is_Unquoted"]]
-    overrun = task_summary[(task_summary["Is_Overrun"]) & (~task_summary["Is_Unquoted"])]
-    unbilled = task_summary[task_summary["Has_Unbilled"]]
-    
+def analyze_overrun_causes(ts: pd.DataFrame) -> dict:
+    unq = ts[ts["Is_Unquoted"]]
+    ovr = ts[(ts["Is_Overrun"]) & (~ts["Is_Unquoted"])]
+    unb = ts[ts["Has_Unbilled"]]
     return {
-        "scope_creep": {
-            "task_count": len(unquoted),
-            "total_cost": unquoted["Cost_TM"].sum(),
-            "total_hours": unquoted["Actual_Hours"].sum(),
-        },
-        "underestimation": {
-            "task_count": len(overrun),
-            "excess_hours": overrun["Hours_Variance"].sum(),
-        },
-        "unbilled_work": {
-            "task_count": len(unbilled),
-            "unbilled_hours": unbilled["Unbilled_Hours"].sum(),
-        },
+        "scope_creep": {"count": len(unq), "cost": unq["Cost_TM"].sum(), "hours": unq["Actual_Hours"].sum()},
+        "underestimation": {"count": len(ovr), "excess_hours": ovr["Hours_Variance"].sum()},
+        "unbilled": {"count": len(unb), "hours": unb["Unbilled_Hours"].sum()},
     }
 
 
 # =============================================================================
-# METRIC DEFINITIONS (for display in UI)
+# METRIC DEFINITIONS
 # =============================================================================
 
 METRIC_DEFINITIONS = {
-    "Quoted_Hours": {
-        "name": "Quoted Hours",
-        "formula": "SUM([Job Task] Quoted Time)",
-        "description": "Total estimated hours from the original quote"
-    },
-    "Quoted_Amount": {
-        "name": "Quoted Amount",
-        "formula": "SUM([Job Task] Quoted Amount)",
-        "description": "Total estimated revenue from the original quote"
-    },
-    "Actual_Hours": {
-        "name": "Actual Hours",
-        "formula": "SUM([Job Task] Actual Time (totalled))",
-        "description": "Total hours actually logged/worked"
-    },
-    "Billable_Value": {
-        "name": "Billable Value",
-        "formula": "Actual Hours × [Task] Billable Rate",
-        "description": "Revenue that SHOULD be billed based on hours worked at standard billable rate"
-    },
-    "Cost_TM": {
-        "name": "Cost (Time & Materials)",
-        "formula": "Actual Hours × [Task] Base Rate",
-        "description": "Internal labor cost based on hours worked at base cost rate"
-    },
-    "Profit": {
-        "name": "Profit",
-        "formula": "Billable Value - Cost (T&M)",
-        "description": "Gross profit = what can be billed minus internal labor cost"
-    },
-    "Margin_Pct": {
-        "name": "Margin %",
-        "formula": "(Profit / Billable Value) × 100",
-        "description": "Profit as a percentage of billable value"
-    },
-    "Quoted_Margin_Pct": {
-        "name": "Quoted Margin %",
-        "formula": "(Quoted Amount - Cost) / Quoted Amount × 100",
-        "description": "Expected margin based on quoted amount vs actual cost incurred"
-    },
-    "Margin_Erosion": {
-        "name": "Margin Erosion",
-        "formula": "Quoted Margin % - Actual Margin %",
-        "description": "How much margin was lost compared to what was expected from quote"
-    },
-    "Hours_Variance": {
-        "name": "Hours Variance",
-        "formula": "Actual Hours - Quoted Hours",
-        "description": "Positive = overrun (worked more than quoted)"
-    },
-    "Unbilled_Hours": {
-        "name": "Unbilled Hours",
-        "formula": "Actual Hours - Invoiced Hours",
-        "description": "Hours worked but not yet invoiced to client"
-    },
+    "Quoted_Amount": {"name": "Quoted Amount", "formula": "[Job Task] Quoted Amount", "desc": "Revenue from original quote"},
+    "Billable_Value": {"name": "Billable Value", "formula": "Actual Hours × Billable Rate/Hr", "desc": "Value at standard billing rate"},
+    "Cost_TM": {"name": "Cost (T&M)", "formula": "Actual Hours × Cost Rate/Hr", "desc": "Internal labor cost"},
+    "Profit": {"name": "Profit", "formula": "Billable Value - Cost", "desc": "Gross profit"},
+    "Quoted_Margin_Pct": {"name": "Quoted Margin %", "formula": "(Quoted Amount - Cost) / Quoted Amount × 100", "desc": "Margin if we billed quoted amount"},
+    "Billable_Margin_Pct": {"name": "Billable Margin %", "formula": "(Billable Value - Cost) / Billable Value × 100", "desc": "Margin at standard billing rates"},
+    "Quoted_Rate_Hr": {"name": "Quoted Rate/Hr", "formula": "Quoted Amount / Quoted Hours", "desc": "Implied rate from quote"},
+    "Billable_Rate_Hr": {"name": "Billable Rate/Hr", "formula": "[Task] Billable Rate", "desc": "Standard client rate"},
+    "Cost_Rate_Hr": {"name": "Cost Rate/Hr (T&M)", "formula": "[Task] Base Rate", "desc": "Internal cost per hour"},
 }
