@@ -304,10 +304,15 @@ def compute_monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
     g["Quoted_Margin_Pct"] = np.where(g["Quoted_Amount"] > 0, (g["Quoted_Margin"] / g["Quoted_Amount"]) * 100, 0)
     g["Actual_Margin_Pct"] = np.where(g["Billable_Value"] > 0, (g["Actual_Margin"] / g["Billable_Value"]) * 100, 0)
     
+    # Alias columns for convenience
+    g["Margin"] = g["Actual_Margin"]
+    g["Margin_Pct"] = g["Actual_Margin_Pct"]
+    
     # Rates
     g["Quoted_Rate_Hr"] = np.where(g["Quoted_Hours"] > 0, g["Quoted_Amount"] / g["Quoted_Hours"], 0)
     g["Billable_Rate_Hr"] = np.where(g["Actual_Hours"] > 0, g["Billable_Value"] / g["Actual_Hours"], 0)
     g["Cost_Rate_Hr"] = np.where(g["Actual_Hours"] > 0, g["Base_Cost"] / g["Actual_Hours"], 0)
+    g["Effective_Rate_Hr"] = np.where(g["Actual_Hours"] > 0, g["Quoted_Amount"] / g["Actual_Hours"], 0)
     
     # Variances
     g["Hours_Variance"] = g["Actual_Hours"] - g["Quoted_Hours"]
@@ -413,6 +418,13 @@ def compute_department_summary(df: pd.DataFrame) -> pd.DataFrame:
     g["Cost_Rate_Hr"] = np.where(g["Actual_Hours"] > 0, g["Base_Cost"] / g["Actual_Hours"], 0)
     g["Hours_Variance"] = g["Actual_Hours"] - g["Quoted_Hours"]
     g["Hours_Variance_Pct"] = np.where(g["Quoted_Hours"] > 0, (g["Hours_Variance"] / g["Quoted_Hours"]) * 100, 0)
+    g["Expected_Quote"] = g["Quoted_Hours"] * g["Billable_Rate_Hr"]
+    g["Quote_Gap"] = g["Quoted_Amount"] - g["Expected_Quote"]
+    g["Quote_Gap_Pct"] = np.where(g["Expected_Quote"] > 0, (g["Quote_Gap"] / g["Expected_Quote"]) * 100, 0)
+    
+    # Alias columns
+    g["Margin"] = g["Actual_Margin"]
+    g["Margin_Pct"] = g["Billable_Margin_Pct"]
     
     return g
 
@@ -447,6 +459,13 @@ def compute_product_summary(df: pd.DataFrame) -> pd.DataFrame:
     g["Cost_Rate_Hr"] = np.where(g["Actual_Hours"] > 0, g["Base_Cost"] / g["Actual_Hours"], 0)
     g["Hours_Variance"] = g["Actual_Hours"] - g["Quoted_Hours"]
     g["Hours_Variance_Pct"] = np.where(g["Quoted_Hours"] > 0, (g["Hours_Variance"] / g["Quoted_Hours"]) * 100, 0)
+    g["Expected_Quote"] = g["Quoted_Hours"] * g["Billable_Rate_Hr"]
+    g["Quote_Gap"] = g["Quoted_Amount"] - g["Expected_Quote"]
+    g["Quote_Gap_Pct"] = np.where(g["Expected_Quote"] > 0, (g["Quote_Gap"] / g["Expected_Quote"]) * 100, 0)
+    
+    # Alias columns
+    g["Margin"] = g["Actual_Margin"]
+    g["Margin_Pct"] = g["Billable_Margin_Pct"]
     
     return g
 
@@ -486,6 +505,10 @@ def compute_job_summary(df: pd.DataFrame) -> pd.DataFrame:
     g["Quoted_Margin_Pct"] = np.where(g["Quoted_Amount"] > 0, (g["Quoted_Margin"] / g["Quoted_Amount"]) * 100, 0)
     g["Billable_Margin_Pct"] = np.where(g["Billable_Value"] > 0, (g["Actual_Margin"] / g["Billable_Value"]) * 100, 0)
     g["Margin_Erosion"] = g["Quoted_Margin_Pct"] - g["Billable_Margin_Pct"]
+    
+    # Alias columns for convenience
+    g["Margin"] = g["Actual_Margin"]
+    g["Margin_Pct"] = g["Billable_Margin_Pct"]
     g["Quoted_Rate_Hr"] = np.where(g["Quoted_Hours"] > 0, g["Quoted_Amount"] / g["Quoted_Hours"], 0)
     g["Billable_Rate_Hr"] = np.where(g["Actual_Hours"] > 0, g["Billable_Value"] / g["Actual_Hours"], 0)
     g["Cost_Rate_Hr"] = np.where(g["Actual_Hours"] > 0, g["Base_Cost"] / g["Actual_Hours"], 0)
