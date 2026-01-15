@@ -314,6 +314,9 @@ def compute_monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
     g["Hours_Variance_Pct"] = np.where(g["Quoted_Hours"] > 0, (g["Hours_Variance"] / g["Quoted_Hours"]) * 100, 0)
     g["Revenue_Variance"] = g["Billable_Value"] - g["Quoted_Amount"]
     g["Realization_Pct"] = np.where(g["Quoted_Amount"] > 0, (g["Billable_Value"] / g["Quoted_Amount"]) * 100, 0)
+    g["Expected_Quote"] = g["Quoted_Hours"] * g["Billable_Rate_Hr"]
+    g["Quote_Gap"] = g["Quoted_Amount"] - g["Expected_Quote"]
+    g["Quote_Gap_Pct"] = np.where(g["Expected_Quote"] > 0, (g["Quote_Gap"] / g["Expected_Quote"]) * 100, 0)
     
     return g
 
@@ -492,6 +495,9 @@ def compute_job_summary(df: pd.DataFrame) -> pd.DataFrame:
     g["Is_Overrun"] = g["Hours_Variance"] > 0
     g["Is_Loss"] = g["Profit"] < 0
     g["Has_Margin_Erosion"] = g["Margin_Erosion"] > 10
+    g["Expected_Quote"] = g["Quoted_Hours"] * g["Billable_Rate_Hr"]
+    g["Quote_Gap"] = g["Quoted_Amount"] - g["Expected_Quote"]
+    g["Quote_Gap_Pct"] = np.where(g["Expected_Quote"] > 0, (g["Quote_Gap"] / g["Expected_Quote"]) * 100, 0)
     
     return g
 
@@ -694,11 +700,72 @@ def get_margin_erosion_jobs(js: pd.DataFrame, threshold: float = 10) -> pd.DataF
     return js[js["Margin_Erosion"] > threshold].sort_values("Margin_Erosion", ascending=False)
 
 
+def get_underquoted_jobs(js: pd.DataFrame, threshold: float = 0) -> pd.DataFrame:
+    return js[js["Quote_Gap"] < threshold].sort_values("Quote_Gap")
+
+
+def get_premium_jobs(js: pd.DataFrame, threshold: float = 0) -> pd.DataFrame:
+    return js[js["Quote_Gap"] > threshold].sort_values("Quote_Gap", ascending=False)
+
+
+def diagnose_job_margin(job_row: pd.Series, job_tasks: pd.DataFrame) -> Dict:
+    """Diagnose margin issues for a specific job."""
+    diagnosis = {
+        "summary": "",
+        "issues": [],
+        "root_causes": [],
+        "recommendations": []
+    }
+    
+    # Basic checks
+    margin = job_row["Actual_Margin"]
+    margin_pct = job_row["Billable_Margin_Pct"]
+    quote_gap = job_row["Quote_Gap"]
+    hours_var = job_row["Hours_Variance"]
+    hours_var_pct = job_row["Hours_Variance_Pct"]
+    
+    # Determine overall health
+    if margin < 0:
+        diagnosis["summary"] = "Job is running at a loss"
+        diagnosis["issues"].append("Negative margin")
+    elif margin_pct < 20:
+        diagnosis["summary"] = "Job has low profitability"
+        diagnosis["issues"].append("Low margin percentage")
+    else:
+        diagnosis["summary"] = "Job is profitable"
+    
+    # Quote gap analysis
+    if quote_gap < -1000:
+        diagnosis["issues"].append("Significantly underquoted")
+        diagnosis["root_causes"].append("Pricing too low compared to internal rates")
+        diagnosis["recommendations"].append("Review pricing strategy for similar jobs")
+    elif quote_gap > 1000:
+        diagnosis["issues"].append("Premium pricing applied")
+    
+    # Hours variance analysis
+    if hours_var_pct > 50:
+        diagnosis["issues"].append("Major scope overrun")
+        diagnosis["root_causes"].append("Underestimated effort requirements")
+        diagnosis["recommendations"].append("Improve effort estimation process")
+    elif hours_var_pct < -20:
+        diagnosis["issues"].append("Significant underrun")
+    
+    # Task-level analysis
+    if len(job_tasks) > 0:
+        unquoted_tasks = job_tasks[job_tasks["Is_Unquoted"]]
+        if len(unquoted_tasks) > 0:
+            diagnosis["issues"].append(f"{len(unquoted_tasks)} unquoted tasks")
+            diagnosis["root_causes"].append("Scope changes not properly quoted")
+            diagnosis["recommendations"].append("Implement change order process")
+    
+    return diagnosis
+
+
 def calculate_overall_metrics(js: pd.DataFrame) -> dict:
     n = len(js)
     if n == 0:
         return {k: 0 for k in [
-            "total_jobs", "total_quoted_amount", "total_billable_value", "total_base_cost", "total_profit",
+            "total_jobs", "total_quoted_amount", "total_expected_quote", "total_billable_value", "total_base_cost", "total_profit",
             "overall_quoted_margin_pct", "overall_billable_margin_pct", "revenue_realization_pct",
             "avg_quoted_rate_hr", "avg_billable_rate_hr", "avg_cost_rate_hr",
             "jobs_over_budget", "jobs_at_loss", "overrun_rate", "loss_rate",
@@ -709,6 +776,7 @@ def calculate_overall_metrics(js: pd.DataFrame) -> dict:
     q, b, c = js["Quoted_Amount"].sum(), js["Billable_Value"].sum(), js["Base_Cost"].sum()
     p = b - c
     hq, ha = js["Quoted_Hours"].sum(), js["Actual_Hours"].sum()
+    eq = js["Expected_Quote"].sum()
     
     quoted_margin = q - c
     actual_margin = b - c
@@ -716,6 +784,7 @@ def calculate_overall_metrics(js: pd.DataFrame) -> dict:
     return {
         "total_jobs": n,
         "total_quoted_amount": q,
+        "total_expected_quote": eq,
         "total_billable_value": b,
         "total_base_cost": c,
         "total_cost_tm": c,
