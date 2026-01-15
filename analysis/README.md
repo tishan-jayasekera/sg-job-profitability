@@ -1,145 +1,140 @@
-# Job Profitability Analysis Dashboard
+import streamlit as st
+import pandas as pd
+import altair as alt
+from analysis import etl, analysis
 
-A Streamlit dashboard for analyzing job profitability with **correct financial logic**.
+# =============================================================================
+# CONFIG & STYLE
+# =============================================================================
+st.set_page_config(page_title="Job Profitability Engine", layout="wide")
 
-## Financial Model
+st.markdown("""
+<style>
+    .metric-card {
+        background-color: #f9f9f9;
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #ddd;
+        text-align: center;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-| Term | Source | Purpose |
-|------|--------|---------|
-| **Quoted Amount** | `[Job Task] Quoted Amount` | **= REVENUE** (what gets invoiced to client) |
-| **Billable Value** | `Actual Hours × Billable Rate` | **= BENCHMARK** (what we *should* have quoted) |
-| **Base Cost** | `Actual Hours × Cost Rate` | Internal labor cost |
+# =============================================================================
+# DATA LOADING
+# =============================================================================
+@st.cache_data
+def process_file(uploaded_file):
+    return etl.load_and_process_data(uploaded_file)
 
-### Why Billable Value Matters
+# =============================================================================
+# MAIN APP
+# =============================================================================
+def main():
+    st.title("💰 Job Profitability Engine")
+    st.markdown("### Revenue Allocation & Reconciliation Model")
 
-Billable Value is **not revenue** — it's a sanity check:
-- **Value Gap = Quoted Amount - Billable Value**
-- **Positive** (+) = We quoted ABOVE our internal rates (premium pricing ✅)
-- **Negative** (-) = We quoted BELOW our internal rates (discounting ⚠️)
+    # --- SIDEBAR ---
+    st.sidebar.header("Data Source")
+    uploaded_file = st.sidebar.file_uploader("Upload Report (.xlsx)", type=["xlsx"])
+    
+    if not uploaded_file:
+        st.info("Please upload the `Quoted_Task_Report_FY26.xlsx` file.")
+        st.stop()
+    
+    try:
+        with st.spinner("Processing & Allocating Revenue..."):
+            df_master = process_file(uploaded_file)
+    except Exception as e:
+        st.error(f"Error: {e}")
+        st.stop()
 
----
+    # --- FILTERS ---
+    st.sidebar.header("Filters")
+    all_fys = analysis.get_fiscal_years(df_master)
+    selected_fy = st.sidebar.selectbox("Fiscal Year", all_fys, index=len(all_fys)-1 if all_fys else 0)
+    
+    all_depts = analysis.get_departments(df_master)
+    selected_dept = st.sidebar.selectbox("Department", ["All"] + all_depts)
+    
+    df_filtered = df_master[df_master['Fiscal_Year'] == selected_fy].copy()
+    if selected_dept != "All":
+        df_filtered = df_filtered[df_filtered['Department'] == selected_dept]
 
-## Key Metrics
+    if df_filtered.empty:
+        st.warning("No data found for the selected filters.")
+        st.stop()
 
-### 1. Margin (Profitability)
-```
-Margin = Quoted Amount - Base Cost
-Margin % = Margin / Quoted Amount × 100
-```
-**Target: 35%+**
+    # --- KPI HEADER ---
+    metrics = analysis.compute_overall_metrics(df_filtered)
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Recognized Revenue", f"${metrics['Total_Revenue']:,.0f}", help="Allocated Actuals")
+    col2.metric("Total Cost", f"${metrics['Total_Cost']:,.0f}", help="Hours * Cost Rate")
+    col3.metric("Realized Margin", f"${metrics['Total_Margin']:,.0f}", f"{metrics['Margin_Pct']:.1f}%")
+    col4.metric("Realization Gap", f"${metrics['Realization_Gap']:,.0f}", help="Revenue - (Hours * Billable Rate)")
+    col5.metric("Avg Effective Rate", f"${metrics['Avg_Effective_Rate']:.0f}/hr")
 
-### 2. Value Gap (Quoting Accuracy)
-```
-Value Gap = Quoted Amount - Billable Value
-Value Gap % = Value Gap / Billable Value × 100
-```
-- **Positive** = Premium pricing (good)
-- **Negative** = Underquoting (leaving money on table)
+    # --- TABS ---
+    tab1, tab2, tab3, tab4 = st.tabs(["Monthly Trends", "Department Performance", "Job Explorer", "Task Drill-Down"])
+    
+    # --- TAB 1: MONTHLY ---
+    with tab1:
+        st.subheader("Monthly Performance")
+        monthly_df = analysis.compute_monthly_summary(df_filtered)
+        
+        base = alt.Chart(monthly_df).encode(x=alt.X('Month_Label', sort=None, title='Month'))
+        bars = base.mark_bar().encode(
+            y=alt.Y('Allocated_Revenue', title='Revenue'),
+            tooltip=['Month_Label', 'Allocated_Revenue', 'Margin', 'Realization_Gap']
+        )
+        line = base.mark_line(color='red').encode(
+            y=alt.Y('Margin_Pct', title='Margin %', axis=alt.Axis(format='%'))
+        )
+        st.altair_chart((bars + line).interactive(), use_container_width=True)
 
-### 3. Effective Rate/Hr
-```
-Effective Rate = Quoted Amount / Actual Hours
-```
-If hours overrun, this drops — shows real revenue per hour worked.
+    # --- TAB 2: DEPARTMENT ---
+    with tab2:
+        st.subheader("Department Scorecard")
+        dept_df = analysis.compute_department_summary(df_filtered)
+        
+        scatter = alt.Chart(dept_df).mark_circle(size=100).encode(
+            x=alt.X('Margin_Pct', title='Margin %', axis=alt.Axis(format='%')),
+            y=alt.Y('Effective_Rate_Hr', title='Effective Rate / Hr'),
+            color='Department',
+            size='Allocated_Revenue',
+            tooltip=['Department', 'Allocated_Revenue', 'Margin_Pct', 'Effective_Rate_Hr', 'Realization_Gap']
+        ).interactive()
+        st.altair_chart(scatter, use_container_width=True)
+        st.dataframe(dept_df.style.format({"Allocated_Revenue": "${:,.0f}", "Margin_Pct": "{:.1f}%"}))
 
----
+    # --- TAB 3: JOB EXPLORER ---
+    with tab3:
+        st.subheader("Job Profitability")
+        job_df = analysis.compute_job_summary(df_filtered)
+        
+        c1, c2 = st.columns(2)
+        show_loss = c1.checkbox("Show Loss Making Only")
+        show_gap = c2.checkbox("Show Under-Realized Only")
+        
+        if show_loss: job_df = job_df[job_df['Is_Loss']]
+        if show_gap: job_df = job_df[job_df['Is_Under_Realized']]
+        
+        st.dataframe(job_df.sort_values('Allocated_Revenue', ascending=False).style.format({
+            "Allocated_Revenue": "${:,.0f}", "Margin": "${:,.0f}", "Margin_Pct": "{:.1f}%",
+            "Realization_Gap": "${:,.0f}"
+        }), use_container_width=True)
 
-## Dashboard Features
+    # --- TAB 4: TASK DRILL-DOWN ---
+    with tab4:
+        st.subheader("Task Analysis (Scope Creep)")
+        # Filter for Unquoted Tasks
+        task_df = analysis.compute_task_summary(df_filtered)
+        unquoted = task_df[task_df['Is_Unquoted']].sort_values('Base_Cost', ascending=False)
+        
+        st.markdown("**Top Unquoted Tasks (Cost Impact)**")
+        st.dataframe(unquoted.head(50).style.format({
+            "Base_Cost": "${:,.0f}", "Hours": "{:,.1f}"
+        }), use_container_width=True)
 
-### 📊 Executive Summary
-- Revenue & Margin overview
-- Quoting Accuracy: Quoted vs Billable Value comparison
-- Rate analysis (Quoted vs Billable vs Cost rates)
-- Performance flags (losses, underquoted jobs, scope creep)
-
-### 📈 Monthly Trends
-- Margin % trends over time
-- Value Gap % (quoting accuracy) trends
-- Quoted vs Billable Value comparison by month
-- Department breakdowns
-
-### 🏢 Hierarchical Drill-Down
-- Department → Product → Job → Task
-- Filter by losses, underquoted, overruns
-- Task-level scope creep identification
-
-### 💡 Insights
-- Quoting accuracy issues
-- Scope & hour problems
-- Rate issues
-- Action items for problem jobs
-
-### 🔍 Job Diagnosis
-- Single-job deep dive
-- Root cause analysis
-- Specific recommendations
-
----
-
-## Common Questions
-
-### "Are we quoting correctly?"
-Look at **Value Gap**:
-- Overall positive = quoting above benchmark (good)
-- Jobs with negative Value Gap = underquoted
-
-### "Why is margin low on Job X?"
-Check:
-1. **Value Gap** — was it underquoted vs internal rates?
-2. **Hours Variance** — did hours overrun?
-3. **Unquoted Tasks** — scope creep?
-4. **Effective Rate** — below cost rate?
-
-### "What's scope creep costing us?"
-Check **Unquoted Tasks** — tasks with:
-- Quoted Hours = 0
-- Actual Hours > 0
-
-These represent work not in the original quote.
-
----
-
-## Rate Definitions
-
-| Rate | Formula | Meaning |
-|------|---------|---------|
-| **Quoted Rate/Hr** | Quoted Amount ÷ Quoted Hours | What we charged per quoted hour |
-| **Billable Rate/Hr** | [Task] Billable Rate | Internal standard rate |
-| **Effective Rate/Hr** | Quoted Amount ÷ Actual Hours | Actual revenue per hour worked |
-| **Cost Rate/Hr** | [Task] Base Rate | What each hour costs us |
-
-**Rate Gap = Quoted Rate - Billable Rate**
-- Positive = quoting above standard (premium)
-- Negative = discounting
-
----
-
-## Files
-
-| File | Purpose |
-|------|---------|
-| `analysis.py` | Data processing, metrics, insights |
-| `app.py` | Streamlit dashboard |
-| `README.md` | Documentation |
-
----
-
-## Installation
-
-```bash
-pip install streamlit pandas numpy altair openpyxl
-
-mkdir -p data
-# Place your Excel file in data/
-
-streamlit run app.py
-```
-
----
-
-## Key Principles
-
-1. **Quoted Amount = Revenue** — this is what gets invoiced
-2. **Billable Value = Benchmark** — use for sanity checking quotes
-3. **Value Gap = Quoting Quality** — positive is good, negative means underquoting
-4. **Margin = Quoted - Cost** — the real profit metric
+if __name__ == "__main__":
+    main()
