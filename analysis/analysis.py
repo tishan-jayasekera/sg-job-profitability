@@ -766,8 +766,10 @@ def calculate_overall_metrics(js: pd.DataFrame) -> dict:
     if n == 0:
         return {k: 0 for k in [
             "total_jobs", "total_quoted_amount", "total_expected_quote", "total_billable_value", "total_base_cost", "total_profit",
+            "margin", "margin_pct", "quote_gap", "quote_gap_pct", "jobs_underquoted",
+            "overall_quoted_margin", "overall_actual_margin", "overall_margin_variance",
             "overall_quoted_margin_pct", "overall_billable_margin_pct", "revenue_realization_pct",
-            "avg_quoted_rate_hr", "avg_billable_rate_hr", "avg_cost_rate_hr",
+            "avg_quoted_rate_hr", "avg_billable_rate_hr", "avg_effective_rate_hr", "avg_cost_rate_hr",
             "jobs_over_budget", "jobs_at_loss", "overrun_rate", "loss_rate",
             "total_hours_quoted", "total_hours_actual", "hours_variance", "hours_variance_pct",
             "total_margin_variance"
@@ -781,6 +783,11 @@ def calculate_overall_metrics(js: pd.DataFrame) -> dict:
     quoted_margin = q - c
     actual_margin = b - c
     
+    quote_gap = q - eq
+    quote_gap_pct = (quote_gap / eq * 100) if eq > 0 else 0
+    jobs_underquoted = int((js["Quote_Gap"] < 0).sum())
+    avg_effective_rate_hr = (q / ha) if ha > 0 else 0
+    
     return {
         "total_jobs": n,
         "total_quoted_amount": q,
@@ -789,6 +796,11 @@ def calculate_overall_metrics(js: pd.DataFrame) -> dict:
         "total_base_cost": c,
         "total_cost_tm": c,
         "total_profit": p,
+        "margin": quoted_margin,
+        "margin_pct": (quoted_margin / q * 100) if q > 0 else 0,
+        "quote_gap": quote_gap,
+        "quote_gap_pct": quote_gap_pct,
+        "jobs_underquoted": jobs_underquoted,
         "overall_quoted_margin": quoted_margin,
         "overall_actual_margin": actual_margin,
         "overall_margin_variance": actual_margin - quoted_margin,
@@ -797,6 +809,7 @@ def calculate_overall_metrics(js: pd.DataFrame) -> dict:
         "revenue_realization_pct": (b / q * 100) if q > 0 else 0,
         "avg_quoted_rate_hr": (q / hq) if hq > 0 else 0,
         "avg_billable_rate_hr": (b / ha) if ha > 0 else 0,
+        "avg_effective_rate_hr": avg_effective_rate_hr,
         "avg_cost_rate_hr": (c / ha) if ha > 0 else 0,
         "jobs_over_budget": int(js["Is_Overrun"].sum()),
         "jobs_at_loss": int(js["Is_Loss"].sum()),
